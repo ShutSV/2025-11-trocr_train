@@ -1,0 +1,5 @@
+pip install kraken
+pip install transformers
+pip install fastapi uvicorn orjson
+pip install pydantic_settings
+pip install python-multipart
