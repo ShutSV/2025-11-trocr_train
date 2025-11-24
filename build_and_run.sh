@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Сборка Docker образа
-echo "Сборка Docker образа для Mac..."
-docker build -t train-ocr-server .
+#echo "Сборка Docker образа для Mac..."
+#docker build -t train-ocr-server .
 
 echo "Сборка Docker образа для WIN..."
 docker buildx build --platform linux/amd64 -t 2025-11-win-train-ocr-server .
