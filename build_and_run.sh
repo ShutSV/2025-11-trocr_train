@@ -13,7 +13,7 @@ echo "Запуск контейнера..."
 # для этого выключить Atomman, вынуть из него шнур питания на 5 сек, включить и загрузить, затем перезагрузить, и затем:
 nvidia-smi
 
-docker run -d --name 2025-11-win-train-ocr-server -p 8000:8000 --restart unless-stopped 2025-11-win-train-ocr-server
+docker run -d --gpus all --name 2025-11-cuda-ocr-server -p 8000:8000 --restart unless-stopped 2025-11-win-train-ocr-server
 
 
 echo "Сервер запущен на http://localhost:8000"
