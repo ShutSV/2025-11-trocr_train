@@ -19,7 +19,7 @@ router = APIRouter(
 @router.get("/")
 async def get_status_info():
     """
-    Информация о Datasets for train models
+    Информация о Datasets for train models # ЗАГЛУШКА #
     """
     return {
         "message": "Эндпойнт перечня датасетов для тренировки моделей по распознаванию изображений",

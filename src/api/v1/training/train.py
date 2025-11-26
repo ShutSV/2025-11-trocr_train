@@ -19,7 +19,7 @@ router = APIRouter(
 @router.get("/")
 async def get_ocr_info():
     """
-    Информация об эндпоинте для обучения модели
+    Информация об эндпоинте для обучения модели # ЗАГЛУШКА #
     """
     return {
         "message": "Используйте POST запрос для загрузки изображения",
@@ -38,7 +38,7 @@ async def get_ocr_info():
 
 async def process_image(file: UploadFile = File(...)):
     """
-    Обработка изображения: сегментация и распознавание текста
+    Обучение модели для распознавания текста # ЗАГЛУШКА #
     """
     try:
         return await ocr_image(file, model_path=settings.MODEL_PATH, device=settings.DEVICE)

@@ -19,7 +19,7 @@ router = APIRouter(
 @router.get("/")
 async def get_status_info():
     """
-    Информация о OCR эндпоинте
+    Информация о Train эндпоинте # ЗАГЛУШКА #
     """
     return {
         "message": "Используйте POST запрос для загрузки изображения",
