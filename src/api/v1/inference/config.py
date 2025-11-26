@@ -7,7 +7,7 @@ from src.utils import settings
 router = APIRouter(
     prefix="/config",
     default=ORJSONResponse,
-    tags=["config"]
+    tags=["Inference"]
 )
 
 

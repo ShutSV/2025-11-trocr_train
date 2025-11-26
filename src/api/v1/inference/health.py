@@ -6,7 +6,7 @@ from fastapi.responses import ORJSONResponse
 router = APIRouter(
     prefix="/health",
     default=ORJSONResponse,
-    tags=["health"]
+    tags=["Inference"]
 )
 
 

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/ocr",
     default_response_class=ORJSONResponse,
-    tags=["OCR"]
+    tags=["Inference"]
 )
 
 

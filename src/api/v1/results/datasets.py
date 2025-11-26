@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/datasets",
     default_response_class=ORJSONResponse,
-    tags=["Datasets for train models"]
+    tags=["Results"]
 )
 
 

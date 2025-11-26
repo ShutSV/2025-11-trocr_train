@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/models",
     default_response_class=ORJSONResponse,
-    tags=["Trained models"]
+    tags=["Results"],
 )
 
 
