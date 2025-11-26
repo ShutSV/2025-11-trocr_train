@@ -15,7 +15,7 @@ router = APIRouter(
         path='/',
         status_code=status.HTTP_200_OK,
         response_model=Dict,
-        name='Получение конфигурации для обучения',
+        name='Получение конфигурации для обучения # ЗАГЛУШКА #',
 )
 async def get_settings():
     return {
@@ -27,7 +27,7 @@ async def get_settings():
     path="/",
     status_code=status.HTTP_201_CREATED,
     response_model=Dict,
-    name="Установка конфигурации для обучения",  # ДОПОЛНИТЬ НА ID ПЕРЕМЕННЫХ ОБУЧЕНИЯ
+    name="Установка конфигурации для обучения # ЗАГЛУШКА #",  # ДОПОЛНИТЬ НА ID ПЕРЕМЕННЫХ ОБУЧЕНИЯ
 )
 
 async def set_config(model_path: str, device: str = "cpu"):

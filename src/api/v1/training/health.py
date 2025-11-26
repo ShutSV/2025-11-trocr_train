@@ -14,7 +14,7 @@ router = APIRouter(
         path='/',
         status_code=status.HTTP_200_OK,
         response_model=Dict,
-        name='Проверка активности',
+        name='Проверка активности # ЗАГЛУШКА #',
 )
 async def health_check():
     """Проверка состояния сервера"""

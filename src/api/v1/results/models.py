@@ -19,7 +19,7 @@ router = APIRouter(
 @router.get("/")
 async def get_status_info():
     """
-    Информация о Trained models эндпоинте
+    Информация о Trained models эндпоинте # ЗАГЛУШКА #
     """
     return {
         "message": "Эндпойнт для перечня моделей по распознаванию изображений",
