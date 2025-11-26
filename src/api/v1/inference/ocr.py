@@ -1,7 +1,8 @@
 from fastapi import APIRouter, status, UploadFile, File, HTTPException
 from fastapi.responses import ORJSONResponse
 import logging
-from src.utils import OCRResponse, ocr_image, settings
+from src.utils import OCRResponse, ocr_image
+from src.utils import settings_ocr as settings
 
 
 # Настройка логирования

@@ -1,7 +1,7 @@
 from typing import Dict
 from fastapi import APIRouter, status
 from fastapi.responses import ORJSONResponse
-from src.utils import settings
+from src.utils import settings_ocr as settings
 
 
 router = APIRouter(
