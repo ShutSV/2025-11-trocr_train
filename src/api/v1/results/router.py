@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from fastapi.responses import ORJSONResponse
-from .models import models_router
-from .datasets import datasets_router
+from .models import router as models_router
+from .datasets import router as datasets_router
 
 
 router = APIRouter(
