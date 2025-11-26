@@ -4,7 +4,9 @@ from PIL import Image
 from kraken import binarization, pageseg
 import torch
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-from ..utils import settings, OCRLine, OCRResponse
+from ..utils import OCRLine, OCRResponse
+from ..utils import settings_ocr as settings
+
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
