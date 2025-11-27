@@ -4,56 +4,50 @@ from PIL import Image
 from kraken import binarization, pageseg
 import torch
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-from ..utils import OCRLine, OCRResponse
-from ..utils import settings_ocr as settings
+from . import OCRLine, OCRResponse
 
 
-# Настройка логирования
 logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# # Глобальные переменные - ДОЛЖНЫ БЫТЬ ОБЪЯВЛЕНЫ
-# processor = None
-# model = None
-# device = None
+# Кэш для моделей (опционально, для производительности)
+_model_cache = {}
 
 
-# def initialize_model(model_path=settings.MODEL_PATH, device=settings.DEVICE):
-#     """Инициализация модели при запуске сервера"""
-#     logger.info(f"Инициализация модели на устройстве {settings.DEVICE}")
-#
-#     try:
-#         # Загрузка модели
-#         model_path = model_path
-#         processor = TrOCRProcessor.from_pretrained(model_path, use_fast=False)
-#         model = VisionEncoderDecoderModel.from_pretrained(model_path)
-#         model.to(device)
-#         model.eval()
-#         logger.info("Модель успешно загружена и инициализирована")
-#     except Exception as e:
-#         logger.error(f"Ошибка загрузки модели: {e}")
-#         raise
+def get_cached_model(model_path: str, device: str):
+    """Получить модель из кэша или загрузить новую"""
+    cache_key = f"{model_path}_{device}"
+
+    if cache_key not in _model_cache:
+        logger.info(f"Загрузка модели {model_path} на устройство {device}")
+        processor = TrOCRProcessor.from_pretrained(model_path, use_fast=False)
+        model = VisionEncoderDecoderModel.from_pretrained(model_path)
+        model.to(device)
+        model.eval()
+        _model_cache[cache_key] = (processor, model)
+        logger.info(f"Модель {model_path} загружена в кэш")
+
+    return _model_cache[cache_key]
 
 
-async def ocr_image(file, model_path=settings.MODEL_PATH, device=settings.DEVICE):
+async def ocr_image(file, model_path: str, device: str):
     """
     Обработка изображения: сегментация и распознавание текста
     """
-    # global processor, model
-    processor = TrOCRProcessor.from_pretrained(model_path, use_fast=False)
-    model = VisionEncoderDecoderModel.from_pretrained(model_path)
-    model.to(device)
-    model.eval()
-    logger.info(f"Модель {model_path} успешно загружена и инициализирована")
+    # Используем кэшированную модель или загружаем новую
+    processor, model = get_cached_model(model_path, device)
+
     contents = await file.read()
-    image = Image.open(io.BytesIO(contents)).convert('RGB')  # конвертируем в grayscale
+    image = Image.open(io.BytesIO(contents)).convert('RGB')
     logger.info(f"Начата обработка {file.filename}")
+
     # Сегментация Kraken
-    gray_image = image.convert('L')  # Для сегментации используется grayscale
-    binary_image = binarization.nlbin(gray_image)  # Бинаризация
-    segmentation_result = pageseg.segment(binary_image)  # Сегментация на строки
+    gray_image = image.convert('L')
+    binary_image = binarization.nlbin(gray_image)
+    segmentation_result = pageseg.segment(binary_image)
     qnty_lines = len(segmentation_result.lines)
     logger.info(f"Сегментация {file.filename} завершена. Найдено строк: {qnty_lines}")
+
     # Распознавание TrOCR
     ocr_lines = []
     for i, line in enumerate(segmentation_result.lines):

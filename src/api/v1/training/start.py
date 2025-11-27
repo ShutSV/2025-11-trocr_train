@@ -1,48 +1,42 @@
-from fastapi import APIRouter, status, UploadFile, File, HTTPException
+from typing import Dict, Any
+from fastapi import APIRouter, status, Depends, BackgroundTasks, HTTPException
 from fastapi.responses import ORJSONResponse
-import logging
-from src.utils import OCRResponse, ocr_image, settings
-from src.utils import settings_train as settings
+from src.utils import SessionSettingsTrain, RobustTrainingManager
+from src import get_train_session_settings
 
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/start",
+    prefix="/train",
     default_response_class=ORJSONResponse,
-    tags=["Training models"],
+    tags=["Training"]
 )
 
-
-# GET эндпоинт для информации
-@router.get("/")
-async def get_ocr_info():
-    """
-    Информация об эндпоинте для обучения модели # ЗАГЛУШКА #
-    """
-    return {
-        "message": "Используйте POST запрос для загрузки изображения",
-        "endpoint": "/api/v1/training/train",
-        "method": "POST",
-        "parameters": "file: UploadFile"
-    }
+training_manager = RobustTrainingManager()
 
 
 @router.post(
-    path="/",
-    status_code=status.HTTP_201_CREATED,
-    response_model=OCRResponse,
-    name="Загрузка модели и ее обучение",
+    path="/start",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=Dict[str, Any],
+    name="Запуск обучения модели",
 )
-
-async def process_image(file: UploadFile = File(...)):
-    """
-    Обучение модели для распознавания текста # ЗАГЛУШКА #
-    """
+async def start_training(
+        background_tasks: BackgroundTasks,
+        train_session_settings: SessionSettingsTrain = Depends(get_train_session_settings)
+):
+    """Запуск нового процесса обучения"""
     try:
-        return await ocr_image(file, model_path=settings.MODEL_PATH, device=settings.DEVICE)
+        training_config = train_session_settings.get_training_config()
+        training_id = training_manager.start_training(training_config)
+
+        return {
+            "training_id": training_id,
+            "status": "training_started",
+            "message": "Обучение модели запущено",
+            "config": training_config
+        }
     except Exception as e:
-        logger.error(f"Ошибка обработки изображения {file.filename}: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Ошибка обработки изображения: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )

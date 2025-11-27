@@ -14,20 +14,20 @@ training_manager = RobustTrainingManager()
 
 
 @router.post(
-    path="/stop/{training_id}",
+    path="/pause/{training_id}",
     status_code=status.HTTP_200_OK,
     response_model=Dict[str, Any],
-    name="Остановка обучения",
+    name="Пауза обучения",
 )
-async def stop_training(training_id: str):
-    """Остановка конкретной тренировки"""
-    success = training_manager.stop_training(training_id)
+async def pause_training(training_id: str):
+    """Пауза тренировки с возможностью возобновления"""
+    success = training_manager.pause_training(training_id)
 
     if success:
         return {
             "training_id": training_id,
-            "status": "stopped",
-            "message": "Обучение остановлено"
+            "status": "paused",
+            "message": "Обучение поставлено на паузу"
         }
     else:
         raise HTTPException(
