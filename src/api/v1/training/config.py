@@ -1,8 +1,8 @@
 from typing import Dict, Any
 from fastapi import APIRouter, status, Depends
 from fastapi.responses import ORJSONResponse
-from src.utils.settings import SessionSettingsTrain
-from src.dependencies import get_train_session_settings
+from src.utils import SessionSettingsTrain
+from src import get_train_session_settings
 
 
 router = APIRouter(
