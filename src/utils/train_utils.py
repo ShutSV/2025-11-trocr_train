@@ -11,6 +11,11 @@ logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%H:%M:%S', level=
 logger = logging.getLogger(__name__)
 
 
+def validate_dataset_path(dataset_path: str) -> bool:
+    """Простая проверка существования датасета"""
+    return os.path.exists(dataset_path)
+
+
 class RobustTrainingManager:
     def __init__(self, state_dir: str = "./training_states"):
         self.state_manager = PersistentTrainingManager(state_dir)
@@ -78,8 +83,15 @@ class RobustTrainingManager:
             else:
                 # Новая тренировка
                 state = self.state_manager.load_state(training_id)
+                # Простая проверка датасета
+                if not validate_dataset_path(config['dataset_path']):
+                    state.status = TrainingStatus.ERROR
+                    state.message = f"Датасет не найден: {config['dataset_path']}"
+                    self.state_manager.save_state(state)
+                    return
+
                 start_epoch = 0
-                state.message = "Начало обучения"
+                state.message = f"Начало обучения. Датасет: {config['dataset_path']}"
 
             self.state_manager.save_state(state)
 
@@ -181,3 +193,4 @@ class RobustTrainingManager:
         # Если ID не указан, возвращаем первую активную тренировку
         active_trainings = self.state_manager.get_active_trainings()
         return active_trainings[0] if active_trainings else None
+

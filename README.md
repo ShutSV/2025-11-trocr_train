@@ -21,6 +21,7 @@ api/v1:
         /datasets
 
 Решение сценариев:
+
 1. Сессия прервалась - нужно подключиться позже
 # После переподключения:
 GET /api/v1/train/status/all
@@ -29,12 +30,30 @@ GET /api/v1/train/status/all
 GET /api/v1/train/status?training_id=UUID
 # Получим детальный статус конкретной тренировки
 
+
 2. Обучение было прервано - нужно возобновить
 # Находим ID прерванной тренировки
 GET /api/v1/train/history
 
 # Возобновляем
 POST /api/v1/train/resume/UUID
+
+
+3. Установка параметров обучения
+# Установить путь к датасету
+POST /api/v1/train/config
+Content-Type: application/x-www-form-urlencoded
+
+dataset_path=/path/to/my/dataset
+
+# Или все параметры сразу
+POST /api/v1/train/config
+Content-Type: application/x-www-form-urlencoded
+
+dataset_path=/path/to/dataset&batch_size=8&epochs=5
+
+
+
 
 Ключевые особенности:
 
