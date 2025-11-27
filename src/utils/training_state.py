@@ -43,6 +43,12 @@ class TrainingState:
             self.start_time = datetime.now().isoformat()
         self.last_update = datetime.now().isoformat()
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Конвертация в словарь с сериализацией Enum"""
+        data = asdict(self)
+        data['status'] = self.status.value  # Конвертируем Enum в строку
+        return data
+
 
 class PersistentTrainingManager:
     def __init__(self, state_dir: str = "./training_states"):
@@ -78,7 +84,7 @@ class PersistentTrainingManager:
         state.last_update = datetime.now().isoformat()
 
         with open(state_file, 'w', encoding='utf-8') as f:
-            json.dump(asdict(state), f, indent=2, ensure_ascii=False)
+            json.dump(state.to_dict(), f, indent=2, ensure_ascii=False)
 
     def load_state(self, training_id: str) -> Optional[TrainingState]:
         """Загрузка состояния тренировки"""

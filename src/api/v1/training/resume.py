@@ -5,7 +5,7 @@ from src.utils import RobustTrainingManager
 
 
 router = APIRouter(
-    prefix="/train",
+    prefix="/resume",
     default_response_class=ORJSONResponse,
     tags=["Training"]
 )
@@ -14,7 +14,7 @@ training_manager = RobustTrainingManager()
 
 
 @router.post(
-    path="/resume/{training_id}",
+    path="/{training_id}",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=Dict[str, Any],
     name="Возобновление обучения",

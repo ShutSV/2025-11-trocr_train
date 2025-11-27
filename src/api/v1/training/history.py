@@ -5,7 +5,7 @@ from src.utils import RobustTrainingManager
 
 
 router = APIRouter(
-    prefix="/train",
+    prefix="/history",
     default_response_class=ORJSONResponse,
     tags=["Training"]
 )
@@ -14,7 +14,7 @@ training_manager = RobustTrainingManager()
 
 
 @router.get(
-    path="/history",
+    path="/",
     status_code=status.HTTP_200_OK,
     response_model=Dict[str, Any],
     name="История тренировок",

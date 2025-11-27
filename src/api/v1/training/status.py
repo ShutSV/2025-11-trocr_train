@@ -6,7 +6,7 @@ from src.utils import RobustTrainingManager
 
 
 router = APIRouter(
-    prefix="/train",
+    prefix="/status",
     default_response_class=ORJSONResponse,
     tags=["Training"]
 )
@@ -15,7 +15,7 @@ training_manager = RobustTrainingManager()
 
 
 @router.get(
-    path="/status",
+    path="/",
     status_code=status.HTTP_200_OK,
     response_model=Dict[str, Any],
     name="Получение статуса обучения",
@@ -32,22 +32,25 @@ async def get_training_status(
             detail="Тренировка не найдена"
         )
 
+    # Используем to_dict() для правильной сериализации
+    status_dict = status_info.to_dict()
+
     return {
-        "training_id": status_info.training_id,
-        "status": status_info.status.value,
-        "progress": status_info.progress,
-        "current_epoch": status_info.current_epoch,
-        "total_epochs": status_info.total_epochs,
-        "current_loss": status_info.current_loss,
-        "start_time": status_info.start_time,
-        "last_update": status_info.last_update,
-        "message": status_info.message,
-        "checkpoint_available": status_info.checkpoint_path is not None
+        "training_id": status_dict["training_id"],
+        "status": status_dict["status"],  # Теперь это строка, а не Enum
+        "progress": status_dict["progress"],
+        "current_epoch": status_dict["current_epoch"],
+        "total_epochs": status_dict["total_epochs"],
+        "current_loss": status_dict["current_loss"],
+        "start_time": status_dict["start_time"],
+        "last_update": status_dict["last_update"],
+        "message": status_dict["message"],
+        "checkpoint_available": status_dict["checkpoint_path"] is not None
     }
 
 
 @router.get(
-    path="/status/all",
+    path="/all",
     status_code=status.HTTP_200_OK,
     response_model=Dict[str, Any],
     name="Получение статуса всех тренировок",

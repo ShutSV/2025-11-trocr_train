@@ -6,7 +6,7 @@ from src import get_train_session_settings
 
 
 router = APIRouter(
-    prefix="/train",
+    prefix="/start",
     default_response_class=ORJSONResponse,
     tags=["Training"]
 )
@@ -15,13 +15,12 @@ training_manager = RobustTrainingManager()
 
 
 @router.post(
-    path="/start",
+    path="/",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=Dict[str, Any],
     name="Запуск обучения модели",
 )
 async def start_training(
-        background_tasks: BackgroundTasks,
         train_session_settings: SessionSettingsTrain = Depends(get_train_session_settings)
 ):
     """Запуск нового процесса обучения"""
