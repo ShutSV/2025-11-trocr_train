@@ -1,0 +1,22 @@
+{
+  "training_id": "1434603c-d772-42fb-906d-3c67ba67b3b7",
+  "status": "completed",
+  "config": {
+    "model_path": "microsoft/trocr-small-handwritten",
+    "device": "cpu",
+    "batch_size": 4,
+    "epochs": 3,
+    "learning_rate": 5e-05,
+    "output_dir": "./models",
+    "dataset_path": "./datasets"
+  },
+  "progress": 100.0,
+  "current_epoch": 3,
+  "total_epochs": 0,
+  "current_loss": 0.3333333333333333,
+  "metrics": {},
+  "start_time": "2025-11-27T20:34:14.060293",
+  "last_update": "2025-11-27T20:34:20.098140",
+  "checkpoint_path": "./training_states\\1434603c-d772-42fb-906d-3c67ba67b3b7\\checkpoints\\checkpoint_epoch_2",
+  "message": "Обучение завершено успешно"
+}
