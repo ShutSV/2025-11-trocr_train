@@ -5,8 +5,8 @@ import torch
 
 class GlobalSettingsOCR(BaseSettings):
     """Глобальные настройки inference (только для чтения)"""
-    DEFAULT_MODEL_PATH: str = "microsoft/trocr-base-printed"
-    DEFAULT_DEVICE: str = "cpu"
+    MODEL_PATH: str = "microsoft/trocr-small-handwritten"
+    DEVICE: str = "cpu"
 
     model_config = SettingsConfigDict(
         env_file=".env_ocr",
@@ -16,7 +16,7 @@ class GlobalSettingsOCR(BaseSettings):
 
 class GlobalSettingsTrainOCR(BaseSettings):
     """Глобальные настройки обучения"""
-    TRAIN_MODEL_PATH: str = "microsoft/trocr-base-printed"
+    TRAIN_MODEL_PATH: str = "microsoft/trocr-small-handwritten"
     TRAIN_DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
     TRAIN_BATCH_SIZE: int = 4
     TRAIN_EPOCHS: int = 3
@@ -26,7 +26,8 @@ class GlobalSettingsTrainOCR(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_file=".env_train",
-        env_file_encoding="utf-8"
+        env_file_encoding="utf-8",
+        extra='ignore'
     )
 
 
@@ -42,10 +43,10 @@ class SessionSettingsOCR:
         self.device = device
 
     def get_model_path(self):
-        return self.model_path or GlobalSettingsOCR().DEFAULT_MODEL_PATH
+        return self.model_path or global_settings_ocr.model_path
 
     def get_device(self):
-        return self.device or GlobalSettingsOCR().DEFAULT_DEVICE
+        return self.device or global_settings_ocr.device
 
 
 class SessionSettingsTrain:
