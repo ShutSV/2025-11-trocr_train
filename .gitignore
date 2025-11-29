@@ -136,6 +136,7 @@ celerybeat.pid
 
 # Environments
 .env_ocr
+.env_train
 .envrc
 .venv
 env/

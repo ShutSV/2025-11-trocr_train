@@ -1,12 +1,13 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict, Field
 from typing import Optional, Dict, Any
 import torch
 
 
 class GlobalSettingsOCR(BaseSettings):
     """Глобальные настройки inference (только для чтения)"""
-    MODEL_PATH: str = "microsoft/trocr-small-handwritten"
-    DEVICE: str = "cpu"
+    # MODEL_PATH: str = "microsoft/trocr-small-handwritten"
+    MODEL_PATH: str = Field(default="microsoft/trocr-small-handwritten", env="MODEL_PATH")
+    DEVICE: str = 'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu'
 
     model_config = SettingsConfigDict(
         env_file=".env_ocr",
@@ -17,7 +18,7 @@ class GlobalSettingsOCR(BaseSettings):
 class GlobalSettingsTrainOCR(BaseSettings):
     """Глобальные настройки обучения"""
     TRAIN_MODEL_PATH: str = "microsoft/trocr-small-handwritten"
-    TRAIN_DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
+    TRAIN_DEVICE: str = 'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu'
     TRAIN_BATCH_SIZE: int = 4
     TRAIN_EPOCHS: int = 3
     TRAIN_LEARNING_RATE: float = 5e-5
