@@ -1,13 +1,12 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, Dict, Any
 import torch
 
 
 class GlobalSettingsOCR(BaseSettings):
     """Глобальные настройки inference (только для чтения)"""
-    # MODEL_PATH: str = "microsoft/trocr-small-handwritten"
-    MODEL_PATH: str = Field(default="microsoft/trocr-small-handwritten", env="MODEL_PATH")
-    DEVICE: str = 'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu'
+    model_path: str = "microsoft/trocr-small-handwritten"
+    device: str = 'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu'
 
     model_config = SettingsConfigDict(
         env_file=".env_ocr",
@@ -17,19 +16,24 @@ class GlobalSettingsOCR(BaseSettings):
 
 class GlobalSettingsTrainOCR(BaseSettings):
     """Глобальные настройки обучения"""
-    TRAIN_MODEL_PATH: str = "microsoft/trocr-small-handwritten"
-    TRAIN_DEVICE: str = 'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu'
-    TRAIN_BATCH_SIZE: int = 4
-    TRAIN_EPOCHS: int = 3
-    TRAIN_LEARNING_RATE: float = 5e-5
-    TRAIN_OUTPUT_DIR: str = "./models"
-    TRAIN_DATASET_PATH: str = "./datasets"
+    train_model_path: str = "microsoft/trocr-small-handwritten"
+    train_device: str = 'mps' if torch.backends.mps.is_available() else 'cuda' if torch.cuda.is_available() else 'cpu'
+    train_batch_size: int = 4
+    train_epochs: int = 3
+    train_learning_rate: float = 5e-5
+    train_output_dir: str = "./models"
+    train_dataset_path: str = "./datasets"
 
     model_config = SettingsConfigDict(
         env_file=".env_train",
         env_file_encoding="utf-8",
         extra='ignore'
     )
+
+
+# Глобальные настройки
+global_settings_ocr = GlobalSettingsOCR()
+global_settings_train = GlobalSettingsTrainOCR()
 
 
 class SessionSettingsOCR:
@@ -78,8 +82,3 @@ class SessionSettingsTrain:
             "output_dir": self.output_dir or global_train.TRAIN_OUTPUT_DIR,
             "dataset_path": self.dataset_path or global_train.TRAIN_DATASET_PATH,
         }
-
-
-# Глобальные настройки
-global_settings_ocr = GlobalSettingsOCR()
-global_settings_train = GlobalSettingsTrainOCR()

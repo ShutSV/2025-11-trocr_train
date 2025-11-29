@@ -1,5 +1,5 @@
 from fastapi import Request
-from src.utils.settings import SessionSettingsOCR, SessionSettingsTrain
+from src.utils import SessionSettingsOCR, SessionSettingsTrain
 
 
 def get_session_settings(request: Request) -> SessionSettingsOCR:
