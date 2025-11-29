@@ -2,11 +2,11 @@
 
 # Сборка Docker образа
 # Создать multi-arch builder (если еще не сделано)
-docker buildx create --name multiarch-builder --use
-docker buildx inspect --bootstrap
+#docker buildx create --name multiarch-builder --use
+#docker buildx inspect --bootstrap
 
 echo "Сборка Docker образа для Mac..."
-docker buildx build --platform linux/arm64 -f Dockerfile.mac -t train-ocr-server:2025-11 --load .
+docker build -f Dockerfile.mac -t train-ocr-server:2025-11 --load .
 
 echo "Сборка Docker образа для WIN..."
 docker buildx build --platform linux/amd64 -f Dockerfile.cuda -t train-ocr-server:2025-11 --load .
