@@ -6,7 +6,7 @@
 #docker buildx inspect --bootstrap
 
 echo "Сборка Docker образа для Mac..."
-docker build -f Dockerfile.mac -t train-ocr-server:2025-11 --load .
+docker build -f Dockerfile._train-ocr -t train-ocr-server:2025-11-29 --load .
 
 echo "Сборка Docker образа для WIN..."
 docker buildx build --platform linux/amd64 -f Dockerfile.cuda -t train-ocr-server:2025-11 --load .
@@ -17,7 +17,7 @@ docker image inspect train-ocr-server:2025-11 | grep Architecture
 
 # Запуск контейнера
 echo "Запуск контейнера для Mac..."
-docker run -d -p 8000:8000 --restart unless-stopped --name train-ocr-server train-ocr-server:2025-11
+docker run -d -p 8000:8000 --restart unless-stopped --name train-ocr-server-latest train-ocr-server:2025-11-29
 
 # для Win перед запуском контейнера проверить доступность видеокарты (в тч можно 'nvcc --version' для rtx4000ada cuda 12.8
 # для этого выключить Atomman, вынуть из него шнур питания на 5 сек, включить и загрузить, затем перезагрузить, и затем:
