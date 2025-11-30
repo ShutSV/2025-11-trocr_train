@@ -31,7 +31,8 @@ async def get_train_settings(
             train_session_settings.learning_rate,
             train_session_settings.output_dir,
             train_session_settings.dataset_path
-        ])
+        ]),
+        "message": "Конфигурация обучения для текущей сессии",
     }
 
 

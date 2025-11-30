@@ -74,11 +74,11 @@ class SessionSettingsTrain:
     def get_training_config(self) -> Dict[str, Any]:
         global_train = GlobalSettingsTrainOCR()
         return {
-            "model_path": self.model_path or global_train.TRAIN_MODEL_PATH,
-            "device": self.device or global_train.TRAIN_DEVICE,
-            "batch_size": self.batch_size or global_train.TRAIN_BATCH_SIZE,
-            "epochs": self.epochs or global_train.TRAIN_EPOCHS,
-            "learning_rate": self.learning_rate or global_train.TRAIN_LEARNING_RATE,
-            "output_dir": self.output_dir or global_train.TRAIN_OUTPUT_DIR,
-            "dataset_path": self.dataset_path or global_train.TRAIN_DATASET_PATH,
+            "model_path": self.model_path or global_train.train_model_path,
+            "device": self.device or global_train.train_device,
+            "batch_size": self.batch_size or global_train.train_batch_size,
+            "epochs": self.epochs or global_train.train_epochs,
+            "learning_rate": self.learning_rate or global_train.train_learning_rate,
+            "output_dir": self.output_dir or global_train.train_output_dir,
+            "dataset_path": self.dataset_path or global_train.train_dataset_path,
         }

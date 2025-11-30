@@ -1,18 +1,8 @@
 FROM train-ocr-server:2025-11
 LABEL authors="sergio"
 
-# Удаляем старые файлы приложения
+# Удаляем старые файлы проекта
 RUN rm -rf /app/*
 
-# Копируем файлы нового проекта
-COPY . /app
-
-# Переменные
-ENV MODEL_PATH=microsoft/trocr-small-handwritten
-ENV DEVICE=cpu
-
-# Открытие порта
 EXPOSE 8000
-
-# Запуск сервера
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
