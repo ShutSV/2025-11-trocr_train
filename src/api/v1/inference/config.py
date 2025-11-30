@@ -1,6 +1,6 @@
 from fastapi import APIRouter, status, Depends
 from fastapi.responses import ORJSONResponse
-from src.utils import settings_ocr, ConfigOCRInference
+from src.utils import settings_ocr, SettingsOCR, ConfigOCRInference
 
 
 router = APIRouter(
@@ -18,6 +18,7 @@ router = APIRouter(
 async def get_settings() -> ConfigOCRInference:
     return ConfigOCRInference(**settings_ocr.model_dump())
 
+
 @router.post(
     path="/",
     status_code=status.HTTP_201_CREATED,
@@ -29,4 +30,16 @@ async def set_config(config: ConfigOCRInference) -> ConfigOCRInference:
         settings_ocr.model = config.model
         settings_ocr.is_custom = True
     if config.device: settings_ocr.device = config.device
+    return ConfigOCRInference(**settings_ocr.model_dump())
+
+
+@router.post(
+    path="/reload",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ConfigOCRInference,
+    name="Сброс конфигурации",
+)
+async def reload_config() -> ConfigOCRInference:
+    global settings_ocr
+    settings_ocr = SettingsOCR()
     return ConfigOCRInference(**settings_ocr.model_dump())

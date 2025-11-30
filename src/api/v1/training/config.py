@@ -1,6 +1,6 @@
 from fastapi import APIRouter, status, Depends
 from fastapi.responses import ORJSONResponse
-from src.utils import settings_train, ConfigOCRTraining
+from src.utils import settings_train, SettingsTrainOCR, ConfigOCRTraining
 
 
 router = APIRouter(
@@ -30,4 +30,16 @@ async def set_train_config(config: ConfigOCRTraining) -> ConfigOCRTraining:
     if config.model: settings_train.model = config.model
     settings_train.device = config.device
     settings_train.epochs = config.epochs
+    return ConfigOCRTraining(**settings_train.model_dump())
+
+
+@router.post(
+    path="/reload",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ConfigOCRTraining,
+    name="Сброс конфигурации обучения",
+)
+async def set_train_config() -> ConfigOCRTraining:
+    global settings_train
+    settings_train = SettingsTrainOCR()
     return ConfigOCRTraining(**settings_train.model_dump())

@@ -1,5 +1,5 @@
 from .models import OCRLine, OCRResponse, ConfigOCRInference, ConfigOCRTraining
-from .settings import settings_ocr, settings_train
+from .settings import settings_ocr, settings_train, SettingsOCR, SettingsTrainOCR
 from .ocr import ocr_image
 from .training_state import PersistentTrainingManager, TrainingState, TrainingStatus
 from .train_utils import RobustTrainingManager
@@ -17,4 +17,6 @@ __all__ = [
     "TrainingStatus",
     "PersistentTrainingManager",
     "RobustTrainingManager",
+    "SettingsOCR",
+    "SettingsTrainOCR",
 ]
