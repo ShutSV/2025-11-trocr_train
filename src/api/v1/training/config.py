@@ -27,9 +27,10 @@ async def get_train_settings() -> ConfigOCRTraining:
     name="Установка конфигурации обучения",
 )
 async def set_train_config(config: ConfigOCRTraining) -> ConfigOCRTraining:
-    if config.model: settings_train.model = config.model
-    settings_train.device = config.device
-    settings_train.epochs = config.epochs
+    update_data = config.model_dump(exclude_none=True)
+    settings_train.model_validate(update_data)
+    for field, value in update_data.items():
+        setattr(settings_train, field, value)
     return ConfigOCRTraining(**settings_train.model_dump())
 
 

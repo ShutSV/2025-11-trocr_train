@@ -22,7 +22,7 @@ ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 # Устанавливаем тяжелые пакеты отдельно
 RUN pip3 install --timeout 300 --retries 5 --no-cache-dir \
     kraken transformers fastapi uvicorn orjson pydantic_settings python-multipart \
-    sentencepiece sacremoses
+    sentencepiece sacremoses datasets
 
 # Очищаем возможные существующие установки PyTorch и устанавливаем нужную версию
 RUN pip uninstall -y torch torchvision torchaudio || true
