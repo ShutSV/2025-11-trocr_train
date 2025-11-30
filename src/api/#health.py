@@ -1,16 +1,17 @@
-from fastapi import FastAPI, APIRouter, Request, status
-from fastapi.responses import ORJSONResponse
 import datetime
 from typing import Dict
-
-from src.api import api_router
-
-
-app = FastAPI(title="OCR Server", version="1.0.0")
-app.include_router(router=api_router)
+from fastapi import APIRouter, Request, status
+from fastapi.responses import ORJSONResponse
 
 
-@app.get(
+router = APIRouter(
+    prefix="/",
+    default_response_class=ORJSONResponse,
+    tags=["Health"]
+)
+
+
+@router.get(
     path="/",
     status_code=status.HTTP_200_OK,
     response_model=Dict,
