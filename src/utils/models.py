@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Literal
 
 
 class OCRResponse(BaseModel):
@@ -13,3 +14,8 @@ class OCRLine(BaseModel):
     line_number: int
     bbox: list
     text: str
+
+class ConfigOCRInference(BaseModel):
+    model: str
+    device: Literal["mps", "cuda", "cpu"] = "cpu"
+    is_custom: bool = False
