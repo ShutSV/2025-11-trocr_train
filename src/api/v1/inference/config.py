@@ -1,7 +1,7 @@
 from fastapi import APIRouter, status, Depends
 from fastapi.responses import ORJSONResponse
-from src.utils import SessionSettingsOCR, ConfigOCRInference
-from src import get_session_settings
+from src.utils import settings_ocr, ConfigOCRInference
+
 
 router = APIRouter(
     prefix="/config",
@@ -15,12 +15,8 @@ router = APIRouter(
     response_model=ConfigOCRInference,
     name='Получение конфигурации',
 )
-async def get_settings(session_settings: SessionSettingsOCR = Depends(get_session_settings)):
-    return ConfigOCRInference(
-        model=session_settings.get_model_path(),
-        device=session_settings.get_device(),
-        is_custom=session_settings.model_path is not None
-    )
+async def get_settings() -> ConfigOCRInference:
+    return ConfigOCRInference(**settings_ocr.model_dump())
 
 @router.post(
     path="/",
@@ -28,10 +24,9 @@ async def get_settings(session_settings: SessionSettingsOCR = Depends(get_sessio
     response_model=ConfigOCRInference,
     name="Установка конфигурации",
 )
-async def set_config(config: ConfigOCRInference, session_settings: SessionSettingsOCR = Depends(get_session_settings)):
-    session_settings.update(config.model, config.device)
-    return ConfigOCRInference(
-        model=session_settings.get_model_path(),
-        device=session_settings.get_device(),
-        is_custom=session_settings.model_path is not None
-    )
+async def set_config(config: ConfigOCRInference) -> ConfigOCRInference:
+    if config.model:
+        settings_ocr.model = config.model
+        settings_ocr.is_custom = True
+    if config.device: settings_ocr.device = config.device
+    return ConfigOCRInference(**settings_ocr.model_dump())

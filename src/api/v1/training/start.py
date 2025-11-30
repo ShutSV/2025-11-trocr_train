@@ -1,8 +1,7 @@
 from typing import Dict, Any
 from fastapi import APIRouter, status, Depends, BackgroundTasks, HTTPException
 from fastapi.responses import ORJSONResponse
-from src.utils import SessionSettingsTrain, RobustTrainingManager
-from src import get_train_session_settings
+from src.utils import RobustTrainingManager, settings_train
 
 
 router = APIRouter(
@@ -20,19 +19,15 @@ training_manager = RobustTrainingManager()
     response_model=Dict[str, Any],
     name="Запуск обучения модели",
 )
-async def start_training(
-        train_session_settings: SessionSettingsTrain = Depends(get_train_session_settings)
-):
+async def start_training():
     """Запуск нового процесса обучения"""
     try:
-        training_config = train_session_settings.get_training_config()
-        training_id = training_manager.start_training(training_config)
-
+        training_id = training_manager.start_training(**settings_train)
         return {
             "training_id": training_id,
             "status": "training_started",
             "message": "Обучение модели запущено",
-            "config": training_config
+            "config": {**settings_train}
         }
     except Exception as e:
         raise HTTPException(
