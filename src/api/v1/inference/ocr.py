@@ -33,8 +33,8 @@ async def process_image(file: UploadFile = File(...)):
     try:
         return await ocr_image(
             file,
-            model_path=settings_ocr.get_model_path(),
-            device=settings_ocr.get_device()
+            model_path=settings_ocr.model,
+            device=settings_ocr.device
         )
     except Exception as e:
         logger.error(f"Ошибка обработки изображения {file.filename}: {e}")

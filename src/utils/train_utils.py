@@ -7,9 +7,9 @@ from transformers import (TrOCRProcessor,
                           Seq2SeqTrainingArguments,
                           default_data_collator,
                           )
-from datasets import load_dataset, Dataset
+from datasets import Dataset
 import pandas as pd
-from PIL import Image
+# from PIL import Image
 from src.utils import init_status, save_status
 
 
@@ -59,29 +59,29 @@ def train_trocr_model(config: dict):
 
     dataset = load_custom_dataset(dataset_path)
 
-    # Функция предобработки данных
-    def preprocess_function(examples):
-        images = [Image.open(path).convert("RGB") for path in examples["image_path"]]
-        pixel_values = processor(images=images, return_tensors="pt").pixel_values
-
-        labels = processor.tokenizer(
-            examples["text"],
-            padding="max_length",
-            max_length=64,
-            truncation=True
-        ).input_ids
-
-        return {
-            "pixel_values": pixel_values,
-            "labels": labels
-        }
-
-    # Применяем предобработку
-    tokenized_dataset = dataset.map(
-        preprocess_function,
-        batched=True,
-        remove_columns=dataset["train"].column_names
-    )
+    # # Функция предобработки данных
+    # def preprocess_function(examples):
+    #     images = [Image.open(path).convert("RGB") for path in examples["image_path"]]
+    #     pixel_values = processor(images=images, return_tensors="pt").pixel_values
+    #
+    #     labels = processor.tokenizer(
+    #         examples["text"],
+    #         padding="max_length",
+    #         max_length=64,
+    #         truncation=True
+    #     ).input_ids
+    #
+    #     return {
+    #         "pixel_values": pixel_values,
+    #         "labels": labels
+    #     }
+    #
+    # # Применяем предобработку
+    # tokenized_dataset = dataset.map(
+    #     preprocess_function,
+    #     batched=True,
+    #     # remove_columns=dataset["train"].column_names
+    # )
 
     training_args = Seq2SeqTrainingArguments(
         output_dir=output_dir,
@@ -93,7 +93,8 @@ def train_trocr_model(config: dict):
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
-        train_dataset=tokenized_dataset["train"],
+        # train_dataset=tokenized_dataset["train"],
+        train_dataset=dataset,
         data_collator=default_data_collator,
         tokenizer=processor.tokenizer,
         callbacks=[ProgressCallback()]
