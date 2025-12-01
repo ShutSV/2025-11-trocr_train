@@ -34,10 +34,10 @@ class ProgressCallback(TrainerCallback):
 def load_custom_dataset(data_dir):
     data = []
     # Предполагаемая структура: data_dir/images/ и data_dir/labels.csv
-    labels_df = pd.read_csv(os.path.join(data_dir, "labels.csv"))
+    labels_df = pd.read_csv(os.path.join(data_dir, "ramdisk_dataset.csv"))
 
     for _, row in labels_df.iterrows():
-        image_path = os.path.join(data_dir, "images", row["image_name"])
+        image_path = os.path.join(data_dir, "images", row["filename"])
         if os.path.exists(image_path):
             data.append({
                 "image_path": image_path,
@@ -48,8 +48,8 @@ def load_custom_dataset(data_dir):
 
 def train_trocr_model(config: dict):
     init_status()
-    model_name = config.get("MODEL_NAME", "microsoft/trocr-small-handwritten")
-    dataset_path = config.get("DATASET_PATH", "./data")
+    model_name = config.get("model", "microsoft/trocr-small-handwritten")
+    dataset_path = config.get("dataset_path", "./datasets")
     output_dir = os.path.join("./models", datetime.now().strftime("%Y%m%d_%H%M%S"))
 
     os.makedirs(output_dir, exist_ok=True)
