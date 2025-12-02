@@ -110,37 +110,45 @@ def train_trocr_model(config: dict):
     split_dataset = load_custom_dataset(dataset_path)
 
     # Функция предобработки данных
-    def preprocess_function(examples):
+    def preprocess_images_only(examples):
         images = [Image.open(path).convert("RGB") for path in examples["image_path"]]
         pixel_values = processor(images=images, return_tensors="pt").pixel_values
-        pixel_values = pixel_values.squeeze(0)
+        return {"pixel_values": pixel_values.squeeze(0).numpy()}  # Сохраняем как numpy
 
-        labels_batch = processor.tokenizer(
-            examples["text"],
-            padding="max_length",
-            max_length=64,  # Длина должна соответствовать вашей задаче
-            truncation=True,
-            return_tensors="pt"
-        )
-        # Замена padding токенов на -100. Это предотвращает вычисление потерь для padding-токенов
-        labels = labels_batch.input_ids.squeeze(0)  # [1, seq_len] -> [seq_len]
-        labels = torch.where(labels != processor.tokenizer.pad_token_id, labels, torch.tensor(-100))
-
-        # 5. Возвращаем как numpy массивы или списки
-        return {
-            "pixel_values": pixel_values.numpy(),  # Конвертируем в numpy
-            "labels": labels.numpy()  # Конвертируем в numpy
-        }
-
-    # Применяем предобработку
-    tokenized_dataset = split_dataset.map(
-        preprocess_function,
+    # Предобрабатываем изображения
+    dataset_with_images = split_dataset.map(
+        preprocess_images_only,
         batched=True,
-        batch_size=4,
-        remove_columns=split_dataset["train"].column_names,
-        desc="Preprocessing dataset"
+        batch_size=10,  # Малый batch
+        remove_columns=["image_path"],  # Удаляем пути
+        load_from_cache_file=True
     )
-    tokenized_dataset.set_format(type="torch")
+
+    # 2. Токенизируем текст на лету в collator
+    class DynamicTextCollator:
+        def __init__(self, processor, max_length=64):
+            self.processor = processor
+            self.max_length = max_length
+
+        def __call__(self, features):
+            # features содержат pixel_values и text
+
+            # Собираем изображения
+            pixel_values = torch.stack([torch.tensor(f["pixel_values"]) for f in features])
+
+            # Токенизируем текст
+            texts = [f["text"] for f in features]
+            labels = self.processor.tokenizer(
+                texts,
+                padding="max_length",
+                max_length=self.max_length,
+                truncation=True,
+                return_tensors="pt"
+            ).input_ids
+
+            labels[labels == self.processor.tokenizer.pad_token_id] = -100
+
+            return {"pixel_values": pixel_values, "labels": labels}
 
     # Инициализация метрик (CER/WER)
     cer_metric = evaluate.load("cer")
@@ -175,12 +183,14 @@ def train_trocr_model(config: dict):
         load_best_model_at_end=True,  # Загрузить лучшую модель после обучения
     )
 
+    collator = DynamicTextCollator(processor)
+
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
-        train_dataset=tokenized_dataset["train"],
-        eval_dataset=tokenized_dataset["test"],
-        data_collator=default_data_collator,
+        train_dataset=dataset_with_images["train"],
+        eval_dataset=dataset_with_images["test"],
+        data_collator=collator,
         tokenizer=processor.tokenizer,
         callbacks=[ProgressCallback()],
         compute_metrics=compute_metrics_wrapper,
