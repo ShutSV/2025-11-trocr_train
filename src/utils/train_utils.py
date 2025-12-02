@@ -7,9 +7,11 @@ from transformers import (TrOCRProcessor,
                           Seq2SeqTrainingArguments,
                           default_data_collator,
                           )
-from datasets import Dataset
+from datasets import Dataset, DatasetDict
+import numpy as np
+import evaluate
 import pandas as pd
-# from PIL import Image
+from PIL import Image
 from src.utils import init_status, save_status
 
 
@@ -30,6 +32,45 @@ class ProgressCallback(TrainerCallback):
         save_status(data)
 
 
+# Загрузка метрик CER и WER с помощью библиотеки evaluate
+cer_metric = evaluate.load("cer")
+wer_metric = evaluate.load("wer")
+
+
+def compute_metrics(pred, tokenizer):
+    """
+    Вычисляет CER и WER на основе предсказаний модели.
+    Args:
+        pred (Seq2SeqPrediction): Объект, содержащий предсказанные ID и истинные ID меток.
+        tokenizer: Токенизатор TrOCRProcessor.tokenizer.
+    """
+    # 1. Получение предсказаний и меток
+    # pred.predictions: предсказанные ID токенов
+    # pred.label_ids: истинные ID токенов (метки)
+
+    # 2. Игнорирование токенов -100 в метках
+    # (которые мы использовали для padding)
+    label_ids = np.where(pred.label_ids != -100, pred.label_ids, tokenizer.pad_token_id)
+
+    # 3. Декодирование ID в текст
+
+    # Декодируем предсказания
+    # skip_special_tokens=True пропускает [CLS], [SEP], [PAD] и т.д.
+    pred_str = tokenizer.batch_decode(pred.predictions, skip_special_tokens=True)
+
+    # Декодируем истинные метки
+    label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True)
+
+    # 4. Расчет метрик
+
+    # CER (Character Error Rate)
+    cer = cer_metric.compute(predictions=pred_str, references=label_str)
+
+    # WER (Word Error Rate)
+    wer = wer_metric.compute(predictions=pred_str, references=label_str)
+
+    return {"cer": cer, "wer": wer}
+
 # Ручная загрузка датасета из папки с изображениями
 def load_custom_dataset(data_dir):
     data = []
@@ -43,7 +84,11 @@ def load_custom_dataset(data_dir):
                 "image_path": image_path,
                 "text": row["text"]
             })
-    return Dataset.from_list(data)
+    full_dataset = Dataset.from_list(data)
+    # Рекомендуется сразу разделить на обучение и валидацию (например, 90/10)
+    # Это возвращает DatasetDict с ключами 'train' и 'test'
+    split_dataset = full_dataset.train_test_split(test_size=0.1, seed=42)
+    return split_dataset
 
 
 def train_trocr_model(config: dict):
@@ -51,57 +96,94 @@ def train_trocr_model(config: dict):
     model_name = config.get("model", "microsoft/trocr-small-handwritten")
     dataset_path = config.get("dataset_path", "./datasets")
     output_dir = os.path.join("./models", datetime.now().strftime("%Y%m%d_%H%M%S"))
-
     os.makedirs(output_dir, exist_ok=True)
 
     processor = TrOCRProcessor.from_pretrained(model_name)
     model = VisionEncoderDecoderModel.from_pretrained(model_name)
 
-    dataset = load_custom_dataset(dataset_path)
+    # Устанавливаем токен BOS для генерации
+    model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
+    model.config.pad_token_id = processor.tokenizer.pad_token_id
 
-    # # Функция предобработки данных
-    # def preprocess_function(examples):
-    #     images = [Image.open(path).convert("RGB") for path in examples["image_path"]]
-    #     pixel_values = processor(images=images, return_tensors="pt").pixel_values
-    #
-    #     labels = processor.tokenizer(
-    #         examples["text"],
-    #         padding="max_length",
-    #         max_length=64,
-    #         truncation=True
-    #     ).input_ids
-    #
-    #     return {
-    #         "pixel_values": pixel_values,
-    #         "labels": labels
-    #     }
-    #
-    # # Применяем предобработку
-    # tokenized_dataset = dataset.map(
-    #     preprocess_function,
-    #     batched=True,
-    #     # remove_columns=dataset["train"].column_names
-    # )
+    # Загружаем и разделяем датасет
+    split_dataset = load_custom_dataset(dataset_path)
+
+    # Функция предобработки данных
+    def preprocess_function(examples):
+        images = [Image.open(path).convert("RGB") for path in examples["image_path"]]
+        pixel_values = processor(images=images, return_tensors="pt").pixel_values
+
+        labels_batch = processor.tokenizer(
+            examples["text"],
+            padding="max_length",
+            max_length=64,  # Длина должна соответствовать вашей задаче
+            truncation=True
+        )
+        # Замена padding токенов на -100. Это предотвращает вычисление потерь для padding-токенов
+        labels = [[(l if l != processor.tokenizer.pad_token_id else -100) for l in label]
+                  for label in labels_batch.input_ids]
+
+        return {
+            "pixel_values": pixel_values,
+            "labels": labels
+        }
+
+    # Применяем предобработку
+    tokenized_dataset = split_dataset.map(
+        preprocess_function,
+        batched=True,
+        remove_columns=split_dataset["train"].column_names
+    )
+
+    # Инициализация метрик (CER/WER)
+    cer_metric = evaluate.load("cer")
+    wer_metric = evaluate.load("wer")
+
+
+    def compute_metrics_wrapper(pred):
+        """Обертка для передачи токенизатора в основную функцию метрик."""
+        # 1. Игнорирование токенов -100 в метках
+        label_ids = np.where(pred.label_ids != -100, pred.label_ids, processor.tokenizer.pad_token_id)
+
+        # 2. Декодирование ID в текст
+        pred_str = processor.tokenizer.batch_decode(pred.predictions, skip_special_tokens=True)
+        label_str = processor.tokenizer.batch_decode(label_ids, skip_special_tokens=True)
+
+        # 3. Расчет метрик
+        cer = cer_metric.compute(predictions=pred_str, references=label_str)
+        wer = wer_metric.compute(predictions=pred_str, references=label_str)
+
+        return {"cer": cer, "wer": wer}
+
 
     training_args = Seq2SeqTrainingArguments(
         output_dir=output_dir,
-        num_train_epochs=int(config.get("EPOCHS", 1)),
-        per_device_train_batch_size=int(config.get("BATCH_SIZE", 2)),
+        num_train_epochs=int(config.get("epochs", 1)),
+        remove_unused_columns=False,
+        per_device_train_batch_size=int(config.get("batch_size", 2)),
+        evaluation_strategy="epoch",
+        metric_for_best_model="eval_cer",
         logging_dir=os.path.join(output_dir, "logs"),
+        save_strategy="epoch",
+        load_best_model_at_end=True,  # Загрузить лучшую модель после обучения
     )
 
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
-        # train_dataset=tokenized_dataset["train"],
-        train_dataset=dataset,
+        train_dataset=tokenized_dataset["train"],
+        eval_dataset=tokenized_dataset["test"],
         data_collator=default_data_collator,
         tokenizer=processor.tokenizer,
-        callbacks=[ProgressCallback()]
+        callbacks=[ProgressCallback()],
+        compute_metrics=compute_metrics_wrapper,
     )
 
+    print(f"--- Запуск обучения --- {datetime.now().strftime('%Y%m%d_%H%M%S')}")
     trainer.train()
-    save_status({"status": "completed", "progress_pct": 100})
 
-    model.save_pretrained(output_dir)
-    processor.save_pretrained(output_dir)
+    final_model_dir = os.path.join(output_dir, "final_checkpoint")
+    trainer.save_model(final_model_dir)
+    processor.save_pretrained(final_model_dir)
+    save_status({"status": "completed", "progress_pct": 100})
+    print(f"--- Обучение завершено. Модель сохранена в: {final_model_dir} ---")
