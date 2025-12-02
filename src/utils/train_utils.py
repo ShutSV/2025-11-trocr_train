@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+import torch
 from transformers import (TrOCRProcessor,
                           TrainerCallback,
                           VisionEncoderDecoderModel,
@@ -112,28 +113,34 @@ def train_trocr_model(config: dict):
     def preprocess_function(examples):
         images = [Image.open(path).convert("RGB") for path in examples["image_path"]]
         pixel_values = processor(images=images, return_tensors="pt").pixel_values
+        pixel_values = pixel_values.squeeze(0)
 
         labels_batch = processor.tokenizer(
             examples["text"],
             padding="max_length",
             max_length=64,  # Длина должна соответствовать вашей задаче
-            truncation=True
+            truncation=True,
+            return_tensors="pt"
         )
         # Замена padding токенов на -100. Это предотвращает вычисление потерь для padding-токенов
-        labels = [[(l if l != processor.tokenizer.pad_token_id else -100) for l in label]
-                  for label in labels_batch.input_ids]
+        labels = labels_batch.input_ids.squeeze(0)  # [1, seq_len] -> [seq_len]
+        labels = torch.where(labels != processor.tokenizer.pad_token_id, labels, torch.tensor(-100))
 
+        # 5. Возвращаем как numpy массивы или списки
         return {
-            "pixel_values": pixel_values,
-            "labels": labels
+            "pixel_values": pixel_values.numpy(),  # Конвертируем в numpy
+            "labels": labels.numpy()  # Конвертируем в numpy
         }
 
     # Применяем предобработку
     tokenized_dataset = split_dataset.map(
         preprocess_function,
         batched=True,
-        remove_columns=split_dataset["train"].column_names
+        batch_size=4,
+        remove_columns=split_dataset["train"].column_names,
+        desc="Preprocessing dataset"
     )
+    tokenized_dataset.set_format(type="torch")
 
     # Инициализация метрик (CER/WER)
     cer_metric = evaluate.load("cer")
