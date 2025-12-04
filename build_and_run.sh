@@ -27,5 +27,5 @@ docker run -d --gpus all --name 2025-11-cuda-ocr-server -p 8000:8000 --restart u
 echo "Сервер запущен на http://localhost:8000"
 echo "Для проверки: curl http://localhost:8000/health"
 
-# если надо запустить на хосте Win
+# если надо запустить на хосте Win and Mac
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
