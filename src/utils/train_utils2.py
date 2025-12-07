@@ -21,11 +21,12 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint
 import evaluate
 import numpy as np
-import create_csv
-# from start_tensorboard import start_tensorboard
 import logging
 import shutil
-from ramdisk_utils import create_imdisk_ramdisk, extract_zip, scan_disk_with_progress
+
+from src.utils.create_csv import create_csv
+from src.utils.start_tensorboard import start_tensorboard
+from src.utils.ramdisk_utils import create_imdisk_ramdisk, extract_zip, scan_disk_with_progress
 
 
 logging.basicConfig(level=logging.INFO)
@@ -56,7 +57,7 @@ print(f"Проверочный путь: {first_image_path} - Изображен
 print(df.head())
 
 # --- Запуск TensorBoard в Internet ---
-# start_tensorboard()
+start_tensorboard()
 # start_cloudflare_tunnel()
 
 # --- Определяем пайплайн аугментаций --- Это сильный набор аугментаций для борьбы с переобучением
@@ -149,7 +150,7 @@ def compute_metrics(pred):
 print("\n✅ Функция для расчета метрик готова.")
 
 
-def main():
+def main(*args, **kwargs):
     training_args = Seq2SeqTrainingArguments(
         output_dir=str(OUTPUT_DIR),
         predict_with_generate=True,

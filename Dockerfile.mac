@@ -15,7 +15,7 @@ RUN pip install --timeout 300 --retries 5 --no-cache-dir \
 RUN pip uninstall torch torchvision torchaudio -y
 RUN pip install --timeout 300 --retries 5 --no-cache-dir \
     transformers fastapi uvicorn orjson pydantic_settings python-multipart \
-    sentencepiece sacremoses datasets
+    sentencepiece sacremoses datasets tensorboard
 
 # Копирование исходного кода
 COPY . /app
