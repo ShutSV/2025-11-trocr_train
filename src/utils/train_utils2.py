@@ -22,11 +22,10 @@ from transformers.trainer_utils import get_last_checkpoint
 import evaluate
 import numpy as np
 import logging
-import shutil
+# import shutil
 
-from src.utils.create_csv import create_csv
 from src.utils.start_tensorboard import start_tensorboard
-from src.utils.ramdisk_utils import create_imdisk_ramdisk, extract_zip, scan_disk_with_progress
+from src.utils.settings import settings_train
 
 
 logging.basicConfig(level=logging.INFO)
@@ -36,25 +35,35 @@ print(f"Используем устройство: {device}")
 # пути
 TIMESTAMP = datetime.now().strftime('%Y-%m-%d_%H-%M')
 OUTPUT_DIR = Path(rf"D:\DOC\2025-11-trocr_train\output\{TIMESTAMP}")
-MODEL_CHECKPOINT = "microsoft/trocr-small-handwritten"
-VALIDATION_SPLIT_SIZE = 0.05
-RANDOM_SEED = 42
-final_csv_path = Path(r"R:\dataset.csv") # Путь к файлу датасета
-images_dir_path = Path(r"R:\images")  # Исходные файлы
+MODEL_CHECKPOINT = settings_train.model
+CUSTOM_LOADER_DATASET = settings_train.custom_loader_dataset
+VALIDATION_SPLIT_SIZE = settings_train.validation_split_size
+RANDOM_SEED = settings_train.random_seed
+final_csv_path = Path(rf"{settings_train.dataset_path}\{settings_train.labels_filename}") # Путь к файлу датасета
+images_dir_path = Path(rf"{settings_train.dataset_path}\images")  # Исходные файлы
 LOG_DIR = Path(rf"{OUTPUT_DIR}\logs")
 
-create_csv if not os.path.exists(r'D:\datasets\ukr\dataset.csv') else print("**")  # сохраняем DataFrame в CSV-файл, если не существует
-if not os.path.exists(images_dir_path):
-    create_imdisk_ramdisk(size_mb=5000, drive_letter="R")  # создать ramdisk
-    shutil.copy2(r'D:\datasets\ukr\dataset.csv', 'R:\\')  # копировать файл в ramdisk
-    extract_zip(r"D:\datasets\ukr\images.zip", r"R:")  # распаковать zip в ramdisk
-    print(scan_disk_with_progress())  # статистика ramdisk
+# create_csv if not os.path.exists(r'D:\datasets\ukr\dataset.csv') else print("**")  # сохраняем DataFrame в CSV-файл, если не существует
+# if not os.path.exists(images_dir_path):
+#     create_imdisk_ramdisk(size_mb=5000, drive_letter="R")  # создать ramdisk
+#     shutil.copy2(r'D:\datasets\ukr\dataset.csv', 'R:\\')  # копировать файл в ramdisk
+#     extract_zip(r"D:\datasets\ukr\images.zip", r"R:")  # распаковать zip в ramdisk
+#     print(scan_disk_with_progress())  # статистика ramdisk
 
 df = pd.read_csv(final_csv_path)  # Загружаем ГОТОВЫЙ DataFrame
-print(f"✅ Датасет готов к работе. Загружено {len(df)} записей. Пути указывают на Ramdisk для быстрой загрузки.")
-first_image_path = df.iloc[0]['image_path']  # Проверим, что путь к первому файлу корректен и существует
-print(f"Проверочный путь: {first_image_path} - Изображение в датасете существует: {os.path.exists(first_image_path)}")
+print(f"✅ Датасет готов к работе. Загружено {len(df)} записей")
+first_image_path = df.iloc[0]['image_path']  # Проверим, что путь к первому файлу изображений корректен и существует
+print(f"Проверочный путь первого изображения: {first_image_path} - существует: {os.path.exists(first_image_path)}")
 print(df.head())
+
+# # Проверка на существование файлов (важный шаг!)
+# IMAGES_DIR_PATH = images_dir_path
+# print(f"Исходный размер датасета: {len(df)} записей.")
+# existing_files_mask = df['image_path'].apply(lambda x: Path(x).exists())
+# df = df[existing_files_mask].reset_index(drop=True)
+# print(f"Размер датасета после проверки файлов: {len(df)} записей.")
+
+train_df, eval_df = train_test_split(df, test_size=VALIDATION_SPLIT_SIZE, random_state=RANDOM_SEED)
 
 # --- Запуск TensorBoard в Internet ---
 start_tensorboard()
@@ -104,16 +113,11 @@ class CyrillicHandwrittenDataset(Dataset):
         labels = [label if label != self.processor.tokenizer.pad_token_id else -100 for label in labels]
         return {"pixel_values": pixel_values.squeeze(), "labels": torch.tensor(labels)}
 
-print("✅ Класс Dataset и аугментации определены.")
 
-# Проверка на существование файлов (важный шаг!)
-IMAGES_DIR_PATH = images_dir_path
-print(f"Исходный размер датасета: {len(df)} записей.")
-existing_files_mask = df['image_path'].apply(lambda x: Path(x).exists())
-df = df[existing_files_mask].reset_index(drop=True)
-print(f"Размер датасета после проверки файлов: {len(df)} записей.")
+# --- Класс датасета ---
+class BigCyrillicHandwrittenDataset(Dataset):
+    pass
 
-train_df, eval_df = train_test_split(df, test_size=VALIDATION_SPLIT_SIZE, random_state=RANDOM_SEED)
 
 print(f"\nЗагрузка модели '{MODEL_CHECKPOINT}'...")
 processor = TrOCRProcessor.from_pretrained(MODEL_CHECKPOINT)  # --- Загрузка модели и процессора ---
@@ -130,9 +134,17 @@ model.config.decoder.attention_dropout = 0.3
 model = model.to(device)
 print("\n✅ Модель и процессор загружены и сконфигурированы.")
 
-train_dataset = CyrillicHandwrittenDataset(df=train_df, processor=processor, root_dir=IMAGES_DIR_PATH, transforms=train_transforms)  # --- Создание экземпляров датасета ---
-eval_dataset = CyrillicHandwrittenDataset(df=eval_df, processor=processor, root_dir=IMAGES_DIR_PATH) # Валидация без аугментаций
-print(f"\nДанные разделены. Обучение: {len(train_dataset)}, Валидация: {len(eval_dataset)}")
+if CUSTOM_LOADER_DATASET == "CyrillicHandwrittenDataset":
+    train_dataset = CyrillicHandwrittenDataset(df=train_df, processor=processor, root_dir=images_dir_path, transforms=train_transforms)  # --- Создание экземпляров датасета ---
+    eval_dataset = CyrillicHandwrittenDataset(df=eval_df, processor=processor, root_dir=images_dir_path) # Валидация без аугментаций
+    print(f"\nДанные разделены с применением CyrillicHandwrittenDataset. Обучение: {len(train_dataset)}, Валидация: {len(eval_dataset)}")
+elif CUSTOM_LOADER_DATASET == "ImageNet":
+    train_dataset = BigCyrillicHandwrittenDataset(df=train_df, processor=processor, root_dir=images_dir_path, transforms=train_transforms)  # --- Создание экземпляров датасета ---
+    eval_dataset = BigCyrillicHandwrittenDataset(df=eval_df, processor=processor,root_dir=images_dir_path)  # Валидация без аугментаций
+    print(f"\nДанные разделены с применением BigCyrillicHandwrittenDataset. Обучение: {len(train_dataset)}, Валидация: {len(eval_dataset)}")
+else:
+    raise Exception("CUSTOM_LOADER_DATASET dont assigned")
+print("✅ Dataset и аугментации определены.")
 
 cer_metric = evaluate.load("cer")  # --- Подготовка метрики CER ---
 

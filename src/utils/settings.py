@@ -30,6 +30,10 @@ class SettingsTrainOCR(BaseSettings):
     checkpoint_interval: int = 2
     output_dir: str = "./models"
     dataset_path: str = "./datasets"
+    labels_filename: str = "dataset.csv"
+    custom_loader_dataset: str = "CyrillicHandwrittenDataset"
+    validation_split_size: float = 0.05
+    random_seed: int = 42
 
     model_config = SettingsConfigDict(
         env_file=".env_train",
