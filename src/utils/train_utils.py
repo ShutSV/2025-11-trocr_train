@@ -35,26 +35,20 @@ class ProgressCallback(TrainerCallback):
         save_status(data)
 
 
-# Загрузка метрик CER и WER с помощью библиотеки evaluate
-cer_metric = evaluate.load("cer")
+cer_metric = evaluate.load("cer")  # Загрузка метрик CER и WER с помощью библиотеки evaluate
 wer_metric = evaluate.load("wer")
 
 
 def compute_metrics(pred, tokenizer):
     """
-    Вычисляет CER и WER на основе предсказаний модели.
-    Args:
+    Вычисляет CER и WER на основе предсказаний модели. Args:
         pred (Seq2SeqPrediction): Объект, содержащий предсказанные ID и истинные ID меток.
         tokenizer: Токенизатор TrOCRProcessor.tokenizer.
     """
-    # 1. Получение предсказаний и меток pred.predictions: предсказанные ID токенов, pred.label_ids: истинные ID токенов (метки)
-    # 2. Игнорирование токенов -100 в метках (которые мы использовали для padding)
-    label_ids = np.where(pred.label_ids != -100, pred.label_ids, tokenizer.pad_token_id)
-    # 3. Декодирование ID в текст Декодируем предсказания. skip_special_tokens=True пропускает [CLS], [SEP], [PAD] и т.д.
-    pred_str = tokenizer.batch_decode(pred.predictions, skip_special_tokens=True)
+    label_ids = np.where(pred.label_ids != -100, pred.label_ids, tokenizer.pad_token_id)  # 1. Получение предсказаний и меток pred.predictions: предсказанные ID токенов, pred.label_ids: истинные ID токенов (метки) # 2. Игнорирование токенов -100 в метках (которые мы использовали для padding)
+    pred_str = tokenizer.batch_decode(pred.predictions, skip_special_tokens=True)  # 3. Декодирование ID в текст Декодируем предсказания. skip_special_tokens=True пропускает [CLS], [SEP], [PAD] и т.д.
     label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True)  # Декодируем истинные метки
-    # 4. Расчет метрик
-    cer = cer_metric.compute(predictions=pred_str, references=label_str)  # CER (Character Error Rate)
+    cer = cer_metric.compute(predictions=pred_str, references=label_str)  # CER (Character Error Rate)  # 4. Расчет метрик
     wer = wer_metric.compute(predictions=pred_str, references=label_str)  # WER (Word Error Rate)
     return {"cer": cer, "wer": wer}
 
@@ -97,20 +91,19 @@ class CyrillicHandwrittenDataset(Dataset):
             max_length=self.max_target_length,
             truncation=True,
         ).input_ids
-        # Для функции потерь заменяем padding-токены на -100
-        labels = [label if label != self.processor.tokenizer.pad_token_id else -100 for label in labels]
+        labels = [label if label != self.processor.tokenizer.pad_token_id else -100 for label in labels]  # Для функции потерь заменяем padding-токены на -100
         return {"pixel_values": pixel_values, "labels": torch.tensor(labels).unsqueeze(0)}
 
 
 def train_trocr_model(config: dict):
     init_status()
-    model_name = config.get("model", "microsoft/trocr-small-handwritten")
+    # model_name = config.get("model", "microsoft/trocr-small-handwritten")
     output_dir = os.path.join("./models", datetime.now().strftime("%Y%m%d_%H%M%S"))
     os.makedirs(output_dir, exist_ok=True)
 
     # model
-    processor = TrOCRProcessor.from_pretrained(model_name)
-    model = VisionEncoderDecoderModel.from_pretrained(model_name)
+    processor = TrOCRProcessor.from_pretrained(config.get("model", "microsoft/trocr-small-handwritten"))
+    model = VisionEncoderDecoderModel.from_pretrained(config.get("model", "microsoft/trocr-small-handwritten"))
     model.config.decoder_start_token_id = processor.tokenizer.cls_token_id  # Устанавливаем токен BOS для генерации
     model.config.pad_token_id = processor.tokenizer.pad_token_id
     # model.config.vocab_size = model.config.decoder.vocab_size
@@ -136,20 +129,16 @@ def train_trocr_model(config: dict):
     train_dataset = CyrillicHandwrittenDataset(df=train_df, processor=processor, root_dir=IMAGES_DIR_PATH, transforms=train_transforms)  # --- Создание экземпляров датасета ---
     eval_dataset = CyrillicHandwrittenDataset(df=eval_df, processor=processor, root_dir=IMAGES_DIR_PATH)  # Валидация без аугментаций
 
-    # Инициализация метрик (CER/WER)
-    cer_metric = evaluate.load("cer")
+    cer_metric = evaluate.load("cer")  # Инициализация метрик (CER/WER)
     wer_metric = evaluate.load("wer")
 
 
     def compute_metrics_wrapper(pred):
         """Обертка для передачи токенизатора в основную функцию метрик."""
-        # 1. Игнорирование токенов -100 в метках
-        label_ids = np.where(pred.label_ids != -100, pred.label_ids, processor.tokenizer.pad_token_id)
-        # 2. Декодирование ID в текст
-        pred_str = processor.tokenizer.batch_decode(pred.predictions, skip_special_tokens=True)
+        label_ids = np.where(pred.label_ids != -100, pred.label_ids, processor.tokenizer.pad_token_id)  # 1. Игнорирование токенов -100 в метках
+        pred_str = processor.tokenizer.batch_decode(pred.predictions, skip_special_tokens=True)  # 2. Декодирование ID в текст
         label_str = processor.tokenizer.batch_decode(label_ids, skip_special_tokens=True)
-        # 3. Расчет метрик
-        cer = cer_metric.compute(predictions=pred_str, references=label_str)
+        cer = cer_metric.compute(predictions=pred_str, references=label_str)  # 3. Расчет метрик
         wer = wer_metric.compute(predictions=pred_str, references=label_str)
         return {"cer": cer, "wer": wer}
 
