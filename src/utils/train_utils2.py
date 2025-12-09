@@ -44,7 +44,6 @@ CUSTOM_LOADER_DATASET = settings_train.custom_loader_dataset
 VALIDATION_SPLIT_SIZE = settings_train.validation_split_size
 RANDOM_SEED = settings_train.random_seed
 final_csv_path = Path(rf"{settings_train.dataset_path}\{settings_train.labels_filename}") # Путь к файлу датасета
-print(f"{final_csv_path=}")
 images_dir_path = Path(rf"{settings_train.dataset_path}\images")  # Исходные файлы
 LOG_DIR = Path(rf"{OUTPUT_DIR}\logs")
 MAX_CACHE_ZIP_FILES = 8
