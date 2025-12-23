@@ -1,7 +1,8 @@
-import os
+# import os
 # from pathlib import Path
 import random
 import torch
+import multiprocessing as mp
 import pandas as pd
 import albumentations as A
 from PIL import Image
@@ -22,32 +23,16 @@ from transformers.trainer_utils import get_last_checkpoint
 import evaluate
 import numpy as np
 import logging
-# import shutil
-
 import zipfile
 import io
 from collections import OrderedDict
 
-from src.utils.start_tensorboard import start_tensorboard
-from src.utils.settings import settings_train
+# from src.utils.start_tensorboard import start_tensorboard
 
 
 logging.basicConfig(level=logging.INFO)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Используем устройство: {device}")
-
-# пути
-# TIMESTAMP = datetime.now().strftime('%Y-%m-%d_%H-%M')
-# OUTPUT_DIR = Path(rf"D:\DOC\2025-11-trocr_train\output\{TIMESTAMP}")
-# MODEL_CHECKPOINT = settings_train.model
-# CUSTOM_LOADER_DATASET = settings_train.custom_loader_dataset
-# VALIDATION_SPLIT_SIZE = settings_train.validation_split_size
-# RANDOM_SEED = settings_train.random_seed
-# final_csv_path = Path(rf"{settings_train.dataset_path}\{settings_train.labels_filename}") # Путь к файлу датасета
-# images_dir_path = Path(rf"{settings_train.dataset_path}\images")  # Исходные файлы
-# LOG_DIR = Path(rf"{OUTPUT_DIR}\logs")
-# MAX_CACHE_ZIP_FILES = 8
-
 
 TIMESTAMP = datetime.now().strftime('%Y-%m-%d_%H-%M')
 OUTPUT_DIR = Path(rf"D:\DOC\2025-11-trocr_train\output\{TIMESTAMP}")
@@ -56,13 +41,10 @@ CUSTOM_LOADER_DATASET = "ImageNet"
 VALIDATION_SPLIT_SIZE = 0.05
 RANDOM_SEED = 42
 final_csv_path = Path(rf"d:\datasets\rus\dataset_full_index.csv") # Путь к файлу датасета
-images_dir_path = Path(rf"{settings_train.dataset_path}\images")  # Исходные файлы
+
 LOG_DIR = Path(rf"{OUTPUT_DIR}\logs")
 MAX_CACHE_ZIP_FILES = 8
 
-
-# --- Запуск TensorBoard в Internet ---
-start_tensorboard()  # как вариант:  start_cloudflare_tunnel()
 
 # --- Определяем пайплайн аугментаций --- Это сильный набор аугментаций для борьбы с переобучением
 train_transforms = A.Compose([
@@ -73,58 +55,19 @@ train_transforms = A.Compose([
 ])
 
 
-# --- Класс датасета ---
-class CyrillicHandwrittenDataset(Dataset):
-    def __init__(self, df, processor, root_dir, transforms=None, max_target_length=128):
-        self.df = df
-        self.processor = processor
-        self.root_dir = root_dir
-        self.transforms = transforms
-        self.max_target_length = max_target_length
-
-    def __len__(self):
-        return len(self.df)
-
-    def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        file_name = row['image_path']
-        text = row['text']
-        image_path = self.root_dir / file_name
-        try:
-            image = Image.open(image_path).convert("RGB")
-        except FileNotFoundError:
-            logging.warning(f"Файл {image_path} не найден.")
-        if self.transforms:  # Применяем аугментации, если они есть
-            image_np = self.transforms(image=np.array(image))['image']
-            image = Image.fromarray(image_np)
-        pixel_values = self.processor(images=image, return_tensors="pt").pixel_values  # Обработка изображения процессором
-        labels = self.processor.tokenizer(  # Обработка текста процессором
-            text,
-            padding="max_length",
-            max_length=self.max_target_length,
-            truncation=True,
-        ).input_ids
-        # Для функции потерь заменяем padding-токены на -100
-        labels = [label if label != self.processor.tokenizer.pad_token_id else -100 for label in labels]
-        return {"pixel_values": pixel_values.squeeze(), "labels": torch.tensor(labels)}
-
-
 # --- Класс датасета для больших данных ---
 class BigCyrillicHandwrittenDataset(Dataset):
-    def __init__(self, df, processor, root_dir, transforms=None, max_target_length=128, max_cache_size=8):
+    def __init__(self, df, processor, transforms=None, max_target_length=128, max_cache_size=8):
         """
         :param df: DataFrame с колонками 'zip_path' и 'image_path' (внутренний)
         :param processor: TrOCRProcessor
-        :param root_dir: Базовый путь к директории с ZIP-файлами
         :param max_cache_size: Максимальное количество ZIP-архивов для кэширования в RAM
         """
         self.df = df
         self.processor = processor
-        self.root_dir = root_dir  # Это может быть путь, который не используется, если zip_path уже полный
         self.transforms = transforms
         self.max_target_length = max_target_length
         self.max_cache_size = max_cache_size
-
         self.cache = OrderedDict()  # Кэш для хранения открытых объектов ZipFile или их содержимого (байтов) . Используем OrderedDict для реализации LRU-поведения
         logging.info(f"Инициализирован BigDataset с кэшем на {max_cache_size} архивов.")
 
@@ -223,24 +166,13 @@ model.config.decoder.attention_dropout = 0.3
 model = model.to(device)
 print("\n✅ Модель и процессор загружены и сконфигурированы.")
 
-if CUSTOM_LOADER_DATASET == "CyrillicHandwrittenDataset":
-    df = pd.read_csv(final_csv_path)  # Загружаем ГОТОВЫЙ DataFrame
-    print(f"✅ Датасет готов к работе. Загружено {len(df)} записей")
-    first_image_path = df.iloc[0]['image_path']  # Проверим, что путь к первому файлу изображений корректен и существует
-    print(f"Проверочный путь первого изображения: {first_image_path} - существует: {os.path.exists(first_image_path)}")
-    print(df.head())
-    train_df, eval_df = train_test_split(df, test_size=VALIDATION_SPLIT_SIZE, random_state=RANDOM_SEED)
-    train_dataset = CyrillicHandwrittenDataset(df=train_df, processor=processor, root_dir=images_dir_path, transforms=train_transforms)  # --- Создание экземпляров датасета ---
-    eval_dataset = CyrillicHandwrittenDataset(df=eval_df, processor=processor, root_dir=images_dir_path) # Валидация без аугментаций
-    print(f"\nДанные разделены с применением CyrillicHandwrittenDataset. Обучение: {len(train_dataset)}, Валидация: {len(eval_dataset)}")
-elif CUSTOM_LOADER_DATASET == "ImageNet":
-    df = pd.read_csv(final_csv_path)
-    train_df, eval_df = train_test_split(df, test_size=VALIDATION_SPLIT_SIZE, random_state=RANDOM_SEED)
-    train_dataset = BigCyrillicHandwrittenDataset(df=train_df, processor=processor, root_dir=images_dir_path, transforms=train_transforms, max_cache_size=MAX_CACHE_ZIP_FILES)  # --- Создание экземпляров датасета ---
-    eval_dataset = BigCyrillicHandwrittenDataset(df=eval_df, processor=processor,root_dir=images_dir_path, max_cache_size=2)  # Валидация без аугментаций
-    print(f"\nДанные разделены с применением BigCyrillicHandwrittenDataset. Обучение: {len(train_dataset)}, Валидация: {len(eval_dataset)}")
-else:
-    raise Exception("CUSTOM_LOADER_DATASET dont assigned")
+
+df = pd.read_csv(final_csv_path)
+train_df, eval_df = train_test_split(df, test_size=VALIDATION_SPLIT_SIZE, random_state=RANDOM_SEED)
+train_dataset = BigCyrillicHandwrittenDataset(df=train_df, processor=processor, transforms=train_transforms, max_cache_size=MAX_CACHE_ZIP_FILES)  # --- Создание экземпляров датасета ---
+eval_dataset = BigCyrillicHandwrittenDataset(df=eval_df, processor=processor, max_cache_size=2)  # Валидация без аугментаций
+print(f"\nДанные разделены с применением BigCyrillicHandwrittenDataset. Обучение: {len(train_dataset)}, Валидация: {len(eval_dataset)}")
+
 print("✅ Dataset и аугментации определены.")
 
 cer_metric = evaluate.load("cer")  # --- Подготовка метрики CER ---
@@ -263,9 +195,9 @@ def main(*args, **kwargs):
     training_args = Seq2SeqTrainingArguments(
         output_dir=str(OUTPUT_DIR),
         predict_with_generate=True,
-        per_device_train_batch_size=64,  # 64 для RTX4000ada, 48 для T4 и L4, 96 для А100 (VRAM 26 из 40)
-        per_device_eval_batch_size=128,  # 96 для RTX4000ada
-        fp16=True,  # Используем смешанную точность для ускорения
+        per_device_train_batch_size=1,  # 64 для RTX4000ada, 48 для T4 и L4, 96 для А100 (VRAM 26 из 40)
+        per_device_eval_batch_size=1,  # 96 для RTX4000ada
+        # fp16=True,  # Используем смешанную точность для ускорения
 
         # --- настройки логирования ---
         logging_dir=str(LOG_DIR),
@@ -276,7 +208,7 @@ def main(*args, **kwargs):
         save_strategy="steps",
         save_steps=500,
         save_total_limit=3,
-        report_to=["tensorboard"],
+        # report_to=["tensorboard"],
 
         # --- Гиперпараметры ---
         num_train_epochs=10,
@@ -294,8 +226,8 @@ def main(*args, **kwargs):
         logging_first_step=True,  # Логируем первый шаг
         logging_nan_inf_filter=False,  # Логируем все значения
         eval_accumulation_steps=5,  # Для стабильности оценки
-        dataloader_pin_memory=torch.cuda.is_available(),  # Ускорение загрузки данных
-        dataloader_num_workers=8,    # Параллельная загрузка
+        # dataloader_pin_memory=torch.cuda.is_available(),  # Ускорение загрузки данных
+        dataloader_num_workers=2,    # Параллельная загрузка
     )
 
     class EnhancedValidationCallback(TrainerCallback):
@@ -431,4 +363,6 @@ if __name__ == "__main__":
     print(f"\n🚀 НАЧИНАЕМ ОБУЧЕНИЕ! {datetime.now().strftime('%Y-%m-%d_%H-%M')}")
     print(f"Логи TensorBoard будут доступны в: {LOG_DIR}")
     print("Для просмотра запустите: tensorboard --logdir=указанный_выше_путь")
+    # Установите spawn метод для multiprocessing
+    mp.set_start_method('spawn', force=True)
     main()

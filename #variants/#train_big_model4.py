@@ -1,5 +1,4 @@
 import os
-# from pathlib import Path
 import random
 import torch
 import pandas as pd
@@ -7,7 +6,6 @@ import albumentations as A
 from PIL import Image
 from pathlib import Path
 from datetime import datetime
-from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 
 from transformers import (
@@ -22,8 +20,6 @@ from transformers.trainer_utils import get_last_checkpoint
 import evaluate
 import numpy as np
 import logging
-# import shutil
-
 import zipfile
 import io
 from collections import OrderedDict
@@ -37,28 +33,17 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Используем устройство: {device}")
 
 # пути
-# TIMESTAMP = datetime.now().strftime('%Y-%m-%d_%H-%M')
-# OUTPUT_DIR = Path(rf"D:\DOC\2025-11-trocr_train\output\{TIMESTAMP}")
-# MODEL_CHECKPOINT = settings_train.model
-# CUSTOM_LOADER_DATASET = settings_train.custom_loader_dataset
-# VALIDATION_SPLIT_SIZE = settings_train.validation_split_size
-# RANDOM_SEED = settings_train.random_seed
-# final_csv_path = Path(rf"{settings_train.dataset_path}\{settings_train.labels_filename}") # Путь к файлу датасета
-# images_dir_path = Path(rf"{settings_train.dataset_path}\images")  # Исходные файлы
-# LOG_DIR = Path(rf"{OUTPUT_DIR}\logs")
-# MAX_CACHE_ZIP_FILES = 8
-
-
 TIMESTAMP = datetime.now().strftime('%Y-%m-%d_%H-%M')
 OUTPUT_DIR = Path(rf"D:\DOC\2025-11-trocr_train\output\{TIMESTAMP}")
 MODEL_CHECKPOINT = "microsoft/trocr-small-handwritten"
-CUSTOM_LOADER_DATASET = "ImageNet"
 VALIDATION_SPLIT_SIZE = 0.05
 RANDOM_SEED = 42
-final_csv_path = Path(rf"d:\datasets\rus\dataset_full_index.csv") # Путь к файлу датасета
+
+train_csv_path = Path(rf"d:\datasets\rus\datasets\train.csv") # Путь к файлу train датасета
+val_csv_path = Path(rf"d:\datasets\rus\datasets\val.csv") # Путь к файлу val датасета
 images_dir_path = Path(rf"{settings_train.dataset_path}\images")  # Исходные файлы
 LOG_DIR = Path(rf"{OUTPUT_DIR}\logs")
-MAX_CACHE_ZIP_FILES = 8
+
 
 
 # --- Запуск TensorBoard в Internet ---
@@ -109,105 +94,6 @@ class CyrillicHandwrittenDataset(Dataset):
         return {"pixel_values": pixel_values.squeeze(), "labels": torch.tensor(labels)}
 
 
-# --- Класс датасета для больших данных ---
-class BigCyrillicHandwrittenDataset(Dataset):
-    def __init__(self, df, processor, root_dir, transforms=None, max_target_length=128, max_cache_size=8):
-        """
-        :param df: DataFrame с колонками 'zip_path' и 'image_path' (внутренний)
-        :param processor: TrOCRProcessor
-        :param root_dir: Базовый путь к директории с ZIP-файлами
-        :param max_cache_size: Максимальное количество ZIP-архивов для кэширования в RAM
-        """
-        self.df = df
-        self.processor = processor
-        self.root_dir = root_dir  # Это может быть путь, который не используется, если zip_path уже полный
-        self.transforms = transforms
-        self.max_target_length = max_target_length
-        self.max_cache_size = max_cache_size
-
-        self.cache = OrderedDict()  # Кэш для хранения открытых объектов ZipFile или их содержимого (байтов) . Используем OrderedDict для реализации LRU-поведения
-        logging.info(f"Инициализирован BigDataset с кэшем на {max_cache_size} архивов.")
-
-    def __len__(self):
-        return len(self.df)
-
-    def _get_archive_data(self, zip_path):
-        """
-        Загружает или извлекает данные архива из кэша (LRU-стратегия).
-        Возвращает словарь: {внутреннее_имя_файла: байты_изображения}
-        """
-        zip_path_str = str(zip_path)
-
-        if zip_path_str in self.cache:
-            # 1. Кэш-Хит: Перемещаем в конец (самый свежий)
-            self.cache.move_to_end(zip_path_str)
-            return self.cache[zip_path_str]
-
-        # 2. Кэш-Мис: Загружаем новый архив
-        logging.info(f"Загрузка ZIP-архива в RAM: {zip_path_str}")
-
-        # Проверяем лимит кэша
-        if len(self.cache) >= self.max_cache_size:
-            # LRU: Удаляем самый старый элемент (первый)
-            lru_key, _ = self.cache.popitem(last=False)
-            logging.warning(f"Кэш заполнен ({self.max_cache_size}). Удален самый старый архив: {lru_key}")
-
-        # Загрузка всего содержимого ZIP в словарь байтов
-        new_cache_entry = {}
-        try:
-            with zipfile.ZipFile(zip_path, 'r') as zf:
-                for name in zf.namelist():
-                    # Фильтруем папки и не-изображения, если необходимо
-                    if name.lower().endswith(('.jpg', '.jpeg', '.png')):
-                        new_cache_entry[name] = zf.read(name)
-        except Exception as e:
-            logging.error(f"Ошибка при чтении или кэшировании ZIP {zip_path}: {e}")
-            raise
-
-        # Сохраняем новый архив в кэш
-        self.cache[zip_path_str] = new_cache_entry
-        return new_cache_entry
-
-    def __getitem__(self, idx):
-        row = self.df.iloc[idx]
-        zip_path = row['zip_path']
-        internal_file_name = row['image_path']
-        text = row['text']
-
-        # 1. Получаем кэшированные байты архива
-        archive_data = self._get_archive_data(zip_path)
-
-        # 2. Получаем байты нужного изображения
-        if internal_file_name not in archive_data:
-            logging.error(f"Файл {internal_file_name} не найден в кэшированном архиве {zip_path}")
-            # Возвращаем None или поднимаем ошибку, в зависимости от желаемого поведения
-            return self.__getitem__(
-                random.randint(0, len(self.df) - 1))  # Простая стратегия: взять случайный другой
-
-        image_bytes = archive_data[internal_file_name]
-
-        # 3. Декодируем байты в объект PIL.Image
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-
-        # 4. Применяем аугментации (как в вашем исходном коде)
-        if self.transforms:
-            image_np = self.transforms(image=np.array(image))['image']
-            image = Image.fromarray(image_np)
-
-        # 5. Обработка процессором (как в вашем исходном коде)
-        pixel_values = self.processor(images=image, return_tensors="pt").pixel_values
-        labels = self.processor.tokenizer(
-            text,
-            padding="max_length",
-            max_length=self.max_target_length,
-            truncation=True,
-        ).input_ids
-
-        labels = [label if label != self.processor.tokenizer.pad_token_id else -100 for label in labels]
-
-        return {"pixel_values": pixel_values.squeeze(), "labels": torch.tensor(labels)}
-
-
 print(f"\nЗагрузка модели '{MODEL_CHECKPOINT}'...")
 processor = TrOCRProcessor.from_pretrained(MODEL_CHECKPOINT)  # --- Загрузка модели и процессора ---
 model = VisionEncoderDecoderModel.from_pretrained(MODEL_CHECKPOINT)
@@ -223,24 +109,11 @@ model.config.decoder.attention_dropout = 0.3
 model = model.to(device)
 print("\n✅ Модель и процессор загружены и сконфигурированы.")
 
-if CUSTOM_LOADER_DATASET == "CyrillicHandwrittenDataset":
-    df = pd.read_csv(final_csv_path)  # Загружаем ГОТОВЫЙ DataFrame
-    print(f"✅ Датасет готов к работе. Загружено {len(df)} записей")
-    first_image_path = df.iloc[0]['image_path']  # Проверим, что путь к первому файлу изображений корректен и существует
-    print(f"Проверочный путь первого изображения: {first_image_path} - существует: {os.path.exists(first_image_path)}")
-    print(df.head())
-    train_df, eval_df = train_test_split(df, test_size=VALIDATION_SPLIT_SIZE, random_state=RANDOM_SEED)
-    train_dataset = CyrillicHandwrittenDataset(df=train_df, processor=processor, root_dir=images_dir_path, transforms=train_transforms)  # --- Создание экземпляров датасета ---
-    eval_dataset = CyrillicHandwrittenDataset(df=eval_df, processor=processor, root_dir=images_dir_path) # Валидация без аугментаций
-    print(f"\nДанные разделены с применением CyrillicHandwrittenDataset. Обучение: {len(train_dataset)}, Валидация: {len(eval_dataset)}")
-elif CUSTOM_LOADER_DATASET == "ImageNet":
-    df = pd.read_csv(final_csv_path)
-    train_df, eval_df = train_test_split(df, test_size=VALIDATION_SPLIT_SIZE, random_state=RANDOM_SEED)
-    train_dataset = BigCyrillicHandwrittenDataset(df=train_df, processor=processor, root_dir=images_dir_path, transforms=train_transforms, max_cache_size=MAX_CACHE_ZIP_FILES)  # --- Создание экземпляров датасета ---
-    eval_dataset = BigCyrillicHandwrittenDataset(df=eval_df, processor=processor,root_dir=images_dir_path, max_cache_size=2)  # Валидация без аугментаций
-    print(f"\nДанные разделены с применением BigCyrillicHandwrittenDataset. Обучение: {len(train_dataset)}, Валидация: {len(eval_dataset)}")
-else:
-    raise Exception("CUSTOM_LOADER_DATASET dont assigned")
+train_df = pd.read_csv(train_csv_path)  # Загружаем ГОТОВЫЙ DataFrame для train Dataset
+eval_df = pd.read_csv(val_csv_path)  # Загружаем ГОТОВЫЙ DataFrame для val Dataset
+train_dataset = CyrillicHandwrittenDataset(df=train_df, processor=processor, root_dir=images_dir_path, transforms=train_transforms)  # --- Создание экземпляров датасета ---
+eval_dataset = CyrillicHandwrittenDataset(df=eval_df, processor=processor, root_dir=images_dir_path) # Валидация без аугментаций
+print(f"\nДанные загружены. Обучение: {len(train_dataset)}, Валидация: {len(eval_dataset)}")
 print("✅ Dataset и аугментации определены.")
 
 cer_metric = evaluate.load("cer")  # --- Подготовка метрики CER ---
