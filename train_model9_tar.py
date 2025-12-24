@@ -57,7 +57,7 @@ def main():
         output_dir=str(OUTPUT_DIR),
         predict_with_generate=True,
         per_device_train_batch_size=64,  # 64 для RTX4000ada, 48 для T4 и L4, 96 для А100 (VRAM 26 из 40)
-        per_device_eval_batch_size=96,  # 96 для RTX4000ada
+        per_device_eval_batch_size=64,  # 96 для RTX4000ada
         fp16=True,  # Используем смешанную точность для ускорения
 
         # --- настройки логирования ---
@@ -74,7 +74,7 @@ def main():
         # --- Гиперпараметры ---
         # num_train_epochs=10,  # Так как датасет бесконечный/потоковый, лучше задавать шаги, а не эпохи
         max_steps=300_000,
-        learning_rate=1e-5,
+        learning_rate=5e-5,
         weight_decay=0.01,
         warmup_ratio=0.1,
         lr_scheduler_type="linear",
@@ -87,13 +87,13 @@ def main():
         # --- параметры для улучшенного логирования ---
         logging_first_step=True,  # Логируем первый шаг
         logging_nan_inf_filter=False,  # Логируем все значения
-        eval_accumulation_steps=3,  # Для стабильности оценки
+        # eval_accumulation_steps=3,  # Для стабильности оценки
         dataloader_pin_memory=torch.cuda.is_available(),  # Ускорение загрузки данных
-        dataloader_num_workers=4,    # Параллельная загрузка - ОТКЛЮЧИТЬ для [i9 185H]
+        dataloader_num_workers=2,    # Параллельная загрузка - ОТКЛЮЧИТЬ для [i9 185H]
         remove_unused_columns=False,  # Для IterableDataset нужно явно указать, что не используется длина
 
         # Оптимизация загрузки данных
-        # dataloader_prefetch_factor=64,  # Количество батчей, загружаемых каждым worker'ом заранее - ОТКЛЮЧИТЬ для [i9 185H]
+        dataloader_prefetch_factor=64,  # Количество батчей, загружаемых каждым worker'ом заранее - ОТКЛЮЧИТЬ для [i9 185H]
         # dataloader_persistent_workers=True,  # Сохранять workers между эпохами - ОТКЛЮЧИТЬ для [i9 185H]
 
         # Дополнительные параметры

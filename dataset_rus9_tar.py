@@ -56,8 +56,8 @@ def get_wds_dataset(urls, proc, max_len=128, shuffle=True):
     return pipeline
 
 # Датасеты
-train_shards = str(OUTPUT_DIR / "train-{000000..000008}.tar")
-val_shards = str(OUTPUT_DIR / "val-{000000..000003}.tar")
+train_shards = str(OUTPUT_DIR / "train-{000000..000044}.tar")
+val_shards = str(OUTPUT_DIR / "val-{000000..000001}.tar")
 
 train_dataset = get_wds_dataset(train_shards, processor)
 val_dataset = get_wds_dataset(val_shards, processor, shuffle=False)
