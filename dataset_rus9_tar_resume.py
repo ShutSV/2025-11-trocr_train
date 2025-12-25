@@ -8,7 +8,7 @@ import traceback
 
 
 OUTPUT_DIR = Path(r"D:\datasets\rus\datasets\wds_format")
-CHECKPOINT_PATH = r"D:\DOC\2025-11-trocr_train\output\2025-12-24_21-57\best_cer_model"  # 1. ПУТЬ К ВАШЕЙ ЛУЧШЕЙ МОДЕЛИ
+CHECKPOINT_PATH = rf"D:\DOC\2025-11-trocr_train\output\2025-12-25_11-10\best_cer_model"  # 1. ПУТЬ К ВАШЕЙ ЛУЧШЕЙ МОДЕЛИ
 
 processor = TrOCRProcessor.from_pretrained(CHECKPOINT_PATH)  # Лучше загружать процессор оттуда же, где лежит модель
 cyrillic_alphabet = "абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ.,!?- "

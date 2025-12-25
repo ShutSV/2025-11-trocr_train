@@ -3,6 +3,7 @@ from datetime import datetime
 import random
 import time
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from transformers import (
     VisionEncoderDecoderModel,
     Seq2SeqTrainer,
@@ -20,7 +21,7 @@ from dataset_rus9_tar_resume import train_dataset, val_dataset, check_tokenizer_
 TIMESTAMP = datetime.now().strftime('%Y-%m-%d_%H-%M')
 OUTPUT_DIR = Path(rf"D:\DOC\2025-11-trocr_train\output\{TIMESTAMP}")
 LOG_DIR = Path(rf"{OUTPUT_DIR}\logs")
-CHECKPOINT_PATH = r"D:\DOC\2025-11-trocr_train\output\2025-12-24_21-57\best_cer_model"  # 1. ПУТЬ К ВАШЕЙ ЛУЧШЕЙ МОДЕЛИ
+CHECKPOINT_PATH = rf"D:\DOC\2025-11-trocr_train\output\2025-12-25_11-10\best_cer_model"  # 1. ПУТЬ К ВАШЕЙ ЛУЧШЕЙ МОДЕЛИ
 
 # model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
 model = VisionEncoderDecoderModel.from_pretrained(CHECKPOINT_PATH)  # Загружаем модель именно из этой папки
@@ -184,74 +185,89 @@ def main():
             self.early_stopping_patience = early_stopping_patience
             self.best_cer = float('inf')
             self.epochs_no_improve = 0
-            self.writer = None  # Будет инициализирован при первом вызове
+            # self.writer = None  # Будет инициализирован при первом вызове
+            self.writer = SummaryWriter(log_dir=str(Path(checkpoint_dir) / "logs"))  # Явная инициализация
+            print(f"📝 Логгер примеров инициализирован в: {checkpoint_dir}/logs")
 
         def init_writer(self, logs):
-            """Ленивая инициализация SummaryWriter"""
-            if self.writer is None and 'tensorboard' in logs:
-                self.writer = logs['tensorboard']
-                print(f"📊 Инициализирован логгер TensorBoard")
+            pass
 
         def on_evaluate(self, args, state, control, **kwargs):
             """Вызывается после каждого этапа валидации"""
             metrics = kwargs.get('metrics', {})
             global_step = state.global_step
 
-            # Пропускаем если не наш шаг логирования
-            if global_step % self.log_every != 0:
-                return
-
-            # Инициализация логгера
-            self.init_writer(kwargs.get('logs', {}))
-
-            # Получаем метрики
-            cer = metrics.get('eval_cer', float('inf'))
+            # Извлекаем данные
+            # Важно: В Seq2SeqTrainer pred_ids часто передаются через metrics,
+            # если вы переопределяли compute_metrics, или доступны в объекте предсказаний.
             predictions = metrics.get('eval_predictions', [])
             labels = metrics.get('eval_labels', [])
+            cer = metrics.get('eval_cer', float('inf'))
 
-            # Логируем CER
+            # --- БЛОК ПЕЧАТИ В КОНСОЛЬ ---
+            if len(predictions) > 0:
+                print(f"\n--- ПРИМЕРЫ НА ШАГЕ {global_step} (CER: {cer:.4f}) ---")
+                for i in range(min(3, len(predictions))):
+                    p_ids = predictions[i]
+                    l_ids = labels[i]
+
+                    # Заменяем -100 на pad_token_id, чтобы декодер не выдал ошибку
+                    p_ids[p_ids == -100] = self.processor.tokenizer.pad_token_id
+                    l_ids[l_ids == -100] = self.processor.tokenizer.pad_token_id
+
+                    p_text = self.processor.decode(p_ids, skip_special_tokens=True)
+                    l_text = self.processor.decode(l_ids, skip_special_tokens=True)
+
+                    print(f"ОЖИДАНИЕ: '{l_text}'")
+                    print(f"РЕАЛЬНОСТЬ: '{p_text}'")
+                    print("-" * 20)
+
+            # Логируем CER в TensorBoard
             if self.writer:
                 self.writer.add_scalar("Val/cer", cer, global_step)
 
-            # Логируем примеры предсказаний
+            # Логируем примеры в TensorBoard (вкладка TEXT)
             if len(predictions) > 0 and self.writer:
                 n_samples = min(self.num_samples, len(predictions))
+                # Выбираем случайные индексы для разнообразия
                 indices = random.sample(range(len(predictions)), n_samples)
 
                 for i, idx in enumerate(indices):
-                    pred_text = self.processor.decode(predictions[idx], skip_special_tokens=True)
-                    true_text = self.processor.decode(labels[idx], skip_special_tokens=True)
+                    curr_p_ids = predictions[idx]
+                    curr_l_ids = labels[idx]
 
-                    if self.writer:
-                        self.writer.add_text(
-                            f"Val/sample_{i}",
-                            f"True: {true_text}\nPred: {pred_text}",
-                            global_step
-                        )
+                    curr_p_ids[curr_p_ids == -100] = self.processor.tokenizer.pad_token_id
+                    curr_l_ids[curr_l_ids == -100] = self.processor.tokenizer.pad_token_id
 
-            # Сохранение лучшей модели
+                    pred_text = self.processor.decode(curr_p_ids, skip_special_tokens=True)
+                    true_text = self.processor.decode(curr_l_ids, skip_special_tokens=True)
+
+                    self.writer.add_text(
+                        f"Val/sample_{i}",
+                        f"**True:** `{true_text}`  \n**Pred:** `{pred_text}`",
+                        global_step
+                    )
+                self.writer.flush()
+
+            # --- ЛОГИКА СОХРАНЕНИЯ ЛУЧШЕЙ МОДЕЛИ ---
             if cer < self.best_cer:
                 self.best_cer = cer
                 self.epochs_no_improve = 0
-
-                # Создаем директорию если не существует
-                best_model_dir = self.checkpoint_dir / "best_cer_model"
+                best_model_dir = self.checkpoint_dir / f"best_cer_model_cer-{cer}"
                 best_model_dir.mkdir(parents=True, exist_ok=True)
 
-                # Сохраняем модель и процессор
                 kwargs['model'].save_pretrained(best_model_dir)
                 self.processor.save_pretrained(best_model_dir)
 
-                if args.local_rank in [-1, 0]:  # Только для главного процесса
-                    print(f"🎯 Новый лучший CER: {cer:.4f}. Модель сохранена в {best_model_dir}")
+                if args.local_rank in [-1, 0]:
+                    print(f"🎯 Новый лучший CER: {cer:.4f}. Модель сохранена.")
             else:
                 self.epochs_no_improve += 1
                 if self.epochs_no_improve >= self.early_stopping_patience:
-                    print(f"⚠️ CER не улучшается {self.epochs_no_improve} эпох подряд")
+                    print(f"⚠️ CER не улучшается {self.epochs_no_improve} проверок подряд")
 
-            # Вывод в консоль
             if args.local_rank in [-1, 0]:
-                print(f"Validation {datetime.now().strftime('%Y-%m-%d_%H-%M')} @ step {global_step} - CER: {cer:.4f} | Best CER: {self.best_cer:.4f}")
+                print(f"Validation @ step {global_step} - CER: {cer:.4f} | Best: {self.best_cer:.4f}")
 
         def on_train_end(self, args, state, control, **kwargs):
             """Закрываем ресурсы при завершении"""
