@@ -4,7 +4,7 @@ from PIL import Image
 from kraken import binarization, pageseg
 import torch
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-from . import OCRLine, OCRResponse
+from models import OCRLine, OCRResponse
 
 
 logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
@@ -77,3 +77,61 @@ async def ocr_image(file, model_path: str, device: str):
         total_lines=qnty_lines,
         status="success"
     )
+
+
+if __name__ == "__main__":
+    import sys
+    import asyncio
+    from pathlib import Path
+
+
+    # Простой класс для имитации UploadFile
+    class SimpleFile:
+        def __init__(self, filepath):
+            self.filename = Path(filepath).name
+            self.filepath = filepath
+
+        async def read(self):
+            with open(self.filepath, 'rb') as f:
+                return f.read()
+
+
+    async def main():
+
+        print("Использование: <путь_к_изображению> [путь_к_модели] [устройство]")
+
+        # Параметры
+        image_path = r'D:\DOC\2025-11-trocr_train\datasets\IMG_20191129_125404.jpg'
+
+        # Путь к модели (по умолчанию ваша обученная)
+        model_path = r'D:\DOC\2025-11-trocr_train\output\2025-12-24_21-57\best_cer_model'
+
+        # Устройство
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        print(f"📸 Изображение: {image_path}")
+        print(f"🤖 Модель: {model_path}")
+        print(f"⚙️  Устройство: {device}")
+        print("-" * 50)
+
+        # Создаем объект файла и вызываем вашу функцию
+        file_obj = SimpleFile(image_path)
+        result = await ocr_image(file_obj, model_path, device)
+
+        # Выводим результат
+        print("\n✅ РЕЗУЛЬТАТ РАСПОЗНАВАНИЯ:")
+        print("=" * 50)
+
+        # В зависимости от структуры результата
+        if hasattr(result, 'lines'):  # Если это OCRResponse
+            for line in result.lines:
+                print(f"Строка {line.get('line_number', '?')}: {line.get('text', '')}")
+        elif isinstance(result, dict) and 'lines' in result:
+            for line in result['lines']:
+                print(f"Строка {line.get('line_number', '?')}: {line.get('text', '')}")
+        else:
+            print(result)
+
+
+    # Запускаем
+    asyncio.run(main())

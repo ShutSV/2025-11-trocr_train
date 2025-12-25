@@ -8,9 +8,9 @@ import traceback
 
 
 OUTPUT_DIR = Path(r"D:\datasets\rus\datasets\wds_format")
-MODEL_NAME = "microsoft/trocr-small-handwritten"
+CHECKPOINT_PATH = r"D:\DOC\2025-11-trocr_train\output\2025-12-24_21-57\best_cer_model"  # 1. ПУТЬ К ВАШЕЙ ЛУЧШЕЙ МОДЕЛИ
 
-processor = TrOCRProcessor.from_pretrained(MODEL_NAME, use_fast=False)  # Инициализация процессора на верхнем уровне
+processor = TrOCRProcessor.from_pretrained(CHECKPOINT_PATH)  # Лучше загружать процессор оттуда же, где лежит модель
 cyrillic_alphabet = "абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ.,!?- "
 num_added_toks = processor.tokenizer.add_tokens(list(cyrillic_alphabet))
 print(f"Добавлено токенов: {num_added_toks}")
@@ -54,6 +54,14 @@ def get_wds_dataset(urls, proc, max_len=128, shuffle=True):
         pipeline = pipeline.shuffle(500_000)
     pipeline = (pipeline.decode().to_tuple("png", "txt").map(transformer, handler=wds.warn_and_continue).select(filter_none))
     return pipeline
+
+def check_tokenizer_dataset():
+    test_char = "П"
+    char_id = processor.tokenizer.convert_tokens_to_ids(test_char)  # Кодируем символ и смотрим его ID
+    print(f"При создании датасетов")
+    print(f"Символ: {test_char} | ID в процессоре: {char_id}")
+    print(f"Размер словаря: {len(processor.tokenizer)}")  # Посмотрите размер словаря
+
 
 # Датасеты
 train_shards = str(OUTPUT_DIR / "train-{000000..000044}.tar")

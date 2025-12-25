@@ -9,30 +9,45 @@ from transformers import (
     Seq2SeqTrainingArguments,
     default_data_collator,
     TrainerCallback,
+    TrOCRProcessor,
 )
-from transformers.trainer_utils import get_last_checkpoint
+# from transformers.trainer_utils import get_last_checkpoint
 import evaluate
 
-from dataset_rus8_tar import MODEL_NAME, processor, train_dataset, val_dataset
+from dataset_rus9_tar_resume import train_dataset, val_dataset, check_tokenizer_dataset
 
 
 TIMESTAMP = datetime.now().strftime('%Y-%m-%d_%H-%M')
 OUTPUT_DIR = Path(rf"D:\DOC\2025-11-trocr_train\output\{TIMESTAMP}")
 LOG_DIR = Path(rf"{OUTPUT_DIR}\logs")
+CHECKPOINT_PATH = r"D:\DOC\2025-11-trocr_train\output\2025-12-24_21-57\best_cer_model"  # 1. ПУТЬ К ВАШЕЙ ЛУЧШЕЙ МОДЕЛИ
 
-model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
+# model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
+model = VisionEncoderDecoderModel.from_pretrained(CHECKPOINT_PATH)  # Загружаем модель именно из этой папки
+processor = TrOCRProcessor.from_pretrained(CHECKPOINT_PATH)  # Лучше загружать процессор оттуда же, где лежит модель
+
 model.decoder.resize_token_embeddings(len(processor.tokenizer))
-
 model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
 model.config.pad_token_id = processor.tokenizer.pad_token_id
 model.config.vocab_size = model.config.decoder.vocab_size
+
+def check_tokenizer_model():
+    test_char = "П"
+    char_id = processor.tokenizer.convert_tokens_to_ids(test_char)  # Кодируем символ и смотрим его ID
+    print(f"При создании модели")
+    print(f"Символ: {test_char} | ID в процессоре: {char_id}")
+    print(f"Размер словаря: {len(processor.tokenizer)}")  # Посмотрите размер словаря
+
+check_tokenizer_dataset()
+check_tokenizer_model()
 
 # Настройки для предсказания (валидации)
 model.config.max_length = 64
 model.config.early_stopping = True
 model.config.no_repeat_ngram_size = 3
-model.config.length_penalty = 2.0
+model.config.length_penalty = 1.0  # Не поощряем слишком длинные бессмысленные строки
 model.config.num_beams = 4
+model.config.repetition_penalty = 1.2  # Добавляем штраф за пробелы и повторы - Чтобы меньше "заикалась" символами
 
 cer_metric = evaluate.load("cer")
 
@@ -63,21 +78,25 @@ def main():
         # --- настройки логирования ---
         logging_dir=str(LOG_DIR),
         logging_strategy="steps",
-        logging_steps=300,  # Частое логирование для плавных графиков
+        logging_steps=200,  # Частое логирование для плавных графиков
         eval_strategy="steps",
-        eval_steps=5_000,    # Частая валидация для мониторинга
+        eval_steps=2_000,    # Частая валидация для мониторинга
         save_strategy="steps",
-        save_steps=10_000,
+        save_steps=2_000,
         save_total_limit=3,
         report_to=["tensorboard"],
 
         # --- Гиперпараметры ---
         # num_train_epochs=10,  # Так как датасет бесконечный/потоковый, лучше задавать шаги, а не эпохи
-        max_steps=300_000,
-        learning_rate=5e-5,
-        weight_decay=0.01,
+        max_steps=200_000,
+        learning_rate=3e-5,
+        lr_scheduler_type="cosine",  # Косинус лучше выводит из плато
+        warmup_steps=1000,  # Короткий прогрев для новых градиентов
+        weight_decay=0.05,  # Увеличиваем регуляризацию
+
+        # weight_decay=0.01,
         warmup_ratio=0.1,
-        lr_scheduler_type="linear",
+        # lr_scheduler_type="linear",
 
         # --- Управление лучшей моделью ---
         load_best_model_at_end=True,
@@ -106,26 +125,26 @@ def main():
     # Callbacks
     # ==============================
 
-    class FreezeEncoderCallback(TrainerCallback):
-        def __init__(self, unfreeze_step=2000):
-            self.unfreeze_step = unfreeze_step
-            self.is_unfrozen = False
-
-        def on_step_begin(self, args, state, control, **kwargs):
-            model = kwargs['model']
-
-            # На самом первом шаге замораживаем энкодер
-            if state.global_step == 0:
-                for param in model.encoder.parameters():
-                    param.requires_grad = False
-                print(f"❄️ {datetime.now().strftime('%Y-%m-%d_%H-%M')} Энкодер заморожен на первые {self.unfreeze_step} шагов.")
-
-            # При достижении нужного шага — размораживаем
-            if state.global_step >= self.unfreeze_step and not self.is_unfrozen:
-                for param in model.encoder.parameters():
-                    param.requires_grad = True
-                self.is_unfrozen = True
-                print(f"🔥 {datetime.now().strftime('%Y-%m-%d_%H-%M')} Шаг {state.global_step}: Энкодер разморожен. Начинаем полное дообучение.")
+    # class FreezeEncoderCallback(TrainerCallback):
+    #     def __init__(self, unfreeze_step=2000):
+    #         self.unfreeze_step = unfreeze_step
+    #         self.is_unfrozen = False
+    #
+    #     def on_step_begin(self, args, state, control, **kwargs):
+    #         model = kwargs['model']
+    #
+    #         # На самом первом шаге замораживаем энкодер
+    #         if state.global_step == 0:
+    #             for param in model.encoder.parameters():
+    #                 param.requires_grad = False
+    #             print(f"❄️ {datetime.now().strftime('%Y-%m-%d_%H-%M')} Энкодер заморожен на первые {self.unfreeze_step} шагов.")
+    #
+    #         # При достижении нужного шага — размораживаем
+    #         if state.global_step >= self.unfreeze_step and not self.is_unfrozen:
+    #             for param in model.encoder.parameters():
+    #                 param.requires_grad = True
+    #             self.is_unfrozen = True
+    #             print(f"🔥 {datetime.now().strftime('%Y-%m-%d_%H-%M')} Шаг {state.global_step}: Энкодер разморожен. Начинаем полное дообучение.")
 
 
     class MemoryOptimizationCallback(TrainerCallback):
@@ -241,16 +260,16 @@ def main():
                 print("✅ Логгер TensorBoard закрыт")
 
 
-    freeze_callback = FreezeEncoderCallback(unfreeze_step=3000)  # Создаем колбэк разморозки на 3000 шаге
+    # freeze_callback = FreezeEncoderCallback(unfreeze_step=3000)  # Создаем колбэк разморозки на 3000 шаге
 
     memory_callback = MemoryOptimizationCallback()  # Создаем колбэк очистки GPU через 5 минут и после VAL
 
     callback = EnhancedValidationCallback(  # Создаем колбэк улучшенной информации о VAL
         checkpoint_dir=OUTPUT_DIR,
         processor=processor,
-        log_every=500,  # Логировать каждые 200 шагов
-        num_samples=5,  # Показывать 5 примеров
-        early_stopping_patience=5  # Останавливать после 5 эпох без улучшений
+        log_every=2000,  # Логировать каждые 2000 шагов
+        num_samples=10,  # Показывать 10 примеров
+        early_stopping_patience=10  # Останавливать после 10 эпох без улучшений
     )
 
     # ==============================
@@ -265,12 +284,13 @@ def main():
         eval_dataset=val_dataset,
         compute_metrics=compute_metrics,
         processing_class=processor,
-        callbacks=[callback, freeze_callback, memory_callback],
+        callbacks=[callback, memory_callback],
         data_collator=default_data_collator,
     )
 
-    resume_training = bool(get_last_checkpoint(OUTPUT_DIR))
-    trainer.train(resume_from_checkpoint=resume_training)
+    # resume_training = bool(get_last_checkpoint(OUTPUT_DIR))
+    # trainer.train(resume_from_checkpoint=resume_training)
+    trainer.train()
 
     # --- Финальное сохранение ---
     print(f"\n✅ Обучение завершено! {datetime.now().strftime('%Y-%m-%d_%H-%M')} Сохраняем лучшую модель...")
@@ -280,3 +300,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+Отличия этой версии "resume" от обычной тренировки:
+Сброс оптимизатора: Если использовать resume_from_checkpoint=True, то тогда Trainer загрузил бы старый Learning Rate и состояние моментов (Adam). И если модель "застряла", нам нужно встряхнуть её веса новым оптимизатором. Загрузка через from_pretrained и запуск train() без указания чекпоинта в методе — это лучший способ сделать "Restart" обучения с весов CER 0.4.
+Cosine Scheduler: Линейный график слишком быстро снижает LR. Косинус позволит модели дольше находиться на высоком LR, что критично для формирования связей между буквами (превращения букв в слова).
+Full Fine-tuning: На этапе 0.4 энкодер уже нельзя морозить. Ему нужно научиться передавать в декодер контекст "целого слова", а не просто отдельных пятен на бумаге.
+
+Что вы должны увидеть в логах:
+Сначала loss может немного подскочить (это нормально, так как мы увеличили LR), но затем он должен начать падать быстрее, чем раньше. В примерах валидации вы заметите, как пробелы между буквами начнут исчезать: сначала в коротких словах (предлоги), затем в длинных.
+"""
