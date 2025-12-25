@@ -38,8 +38,8 @@ def check_tokenizer_model():
     print(f"Символ: {test_char} | ID в процессоре: {char_id}")
     print(f"Размер словаря: {len(processor.tokenizer)}")  # Посмотрите размер словаря
 
-check_tokenizer_dataset()
-check_tokenizer_model()
+# check_tokenizer_dataset()
+# check_tokenizer_model()
 
 # Настройки для предсказания (валидации)
 model.config.max_length = 64
