@@ -1,0 +1,294 @@
+from pathlib import Path
+from datetime import datetime
+import random
+import time
+import torch
+from torch.utils.tensorboard import SummaryWriter
+from transformers import (
+    VisionEncoderDecoderModel,
+    Seq2SeqTrainer,
+    Seq2SeqTrainingArguments,
+    TrainerCallback,
+    TrOCRProcessor,
+    default_data_collator,
+)
+import evaluate
+
+from dataset_rus10_tar_resume_variant import train_dataset, val_dataset
+
+
+TIMESTAMP = datetime.now().strftime('%Y-%m-%d_%H-%M')
+OUTPUT_DIR = Path(rf"D:\DOC\2025-11-trocr_train\output\{TIMESTAMP}")
+LOG_DIR = Path(rf"{OUTPUT_DIR}\logs")
+CHECKPOINT_PATH = rf"D:\DOC\2025-11-trocr_train\output\2025-12-25_11-10\best_cer_model"  # 1. ПУТЬ К ВАШЕЙ ЛУЧШЕЙ МОДЕЛИ
+
+# model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
+model = VisionEncoderDecoderModel.from_pretrained(CHECKPOINT_PATH)  # Загружаем модель именно из этой папки
+processor = TrOCRProcessor.from_pretrained(CHECKPOINT_PATH)  # Лучше загружать процессор оттуда же, где лежит модель
+
+model.decoder.resize_token_embeddings(len(processor.tokenizer))
+model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
+model.config.pad_token_id = processor.tokenizer.pad_token_id
+model.config.vocab_size = model.config.decoder.vocab_size
+model.config.eos_token_id = processor.tokenizer.sep_token_id # или eos_token_id
+if model.config.decoder_start_token_id is None:
+    model.config.decoder_start_token_id = processor.tokenizer.bos_token_id
+
+# Настройки для предсказания (валидации)
+model.config.max_length = 64
+model.config.early_stopping = True
+model.config.no_repeat_ngram_size = 3
+model.config.length_penalty = 1.0  # Не поощряем слишком длинные бессмысленные строки
+model.config.num_beams = 4
+model.config.repetition_penalty = 1.2  # Добавляем штраф за пробелы и повторы - Чтобы меньше "заикалась" символами
+
+cer_metric = evaluate.load("cer")
+
+def main():
+
+    def compute_metrics(pred):
+        labels_ids = pred.label_ids
+        pred_ids = pred.predictions
+        pred_str = processor.batch_decode(pred_ids, skip_special_tokens=True)  # Декодируем
+        labels_ids[labels_ids == -100] = processor.tokenizer.pad_token_id
+        label_str = processor.batch_decode(labels_ids, skip_special_tokens=True)
+        cer = cer_metric.compute(predictions=pred_str, references=label_str)
+        return {"cer": cer, "eval_predictions": pred_ids, "eval_labels": labels_ids}
+
+    # ==============================
+    # TrainingArguments (i9 185H RTX4000ada)
+    # ==============================
+
+    training_args = Seq2SeqTrainingArguments(
+        output_dir=str(OUTPUT_DIR),
+        predict_with_generate=True,
+        per_device_train_batch_size=64,  # 64 для RTX4000ada, 48 для T4 и L4, 96 для А100 (VRAM 26 из 40)
+        per_device_eval_batch_size=64,  # 96 для RTX4000ada
+        fp16=True,  # Используем смешанную точность для ускорения
+
+        # --- настройки логирования ---
+        logging_dir=str(LOG_DIR),
+        logging_strategy="steps",
+        logging_steps=200,  # Частое логирование для плавных графиков
+        eval_strategy="steps",
+        eval_steps=2_000,    # Частая валидация для мониторинга
+        save_strategy="steps",
+        save_steps=2_000,
+        save_total_limit=3,
+        report_to=["tensorboard"],
+
+        # --- Гиперпараметры ---
+        # num_train_epochs=10,  # Так как датасет бесконечный/потоковый, лучше задавать шаги, а не эпохи
+        max_steps=200_000,
+        learning_rate=4e-5,
+        lr_scheduler_type="cosine",  # Косинус лучше выводит из плато
+        warmup_steps=4_000,  # Короткий прогрев для новых градиентов
+        weight_decay=0.05,  # Увеличиваем регуляризацию
+        label_smoothing_factor=0.1,  # КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: борется с самоуверенностью в пробелах
+
+        # --- Управление лучшей моделью ---
+        load_best_model_at_end=True,
+        metric_for_best_model="cer",
+        greater_is_better=False,
+
+        # --- параметры для улучшенного логирования ---
+        logging_first_step=True,  # Логируем первый шаг
+        logging_nan_inf_filter=False,  # Логируем все значения
+        # eval_accumulation_steps=3,  # Для стабильности оценки
+
+        # --- Оптимизация загрузки данных
+        remove_unused_columns=False,  # Для IterableDataset нужно явно указать, что не используется длина
+        dataloader_num_workers=0,  # Параллельная загрузка - ОТКЛЮЧИТЬ для [i9 185H]
+        # dataloader_pin_memory=torch.cuda.is_available(),  # Ускорение загрузки данных
+        dataloader_pin_memory=False,
+        # dataloader_prefetch_factor=64,  # Количество батчей, загружаемых каждым worker'ом заранее - ОТКЛЮЧИТЬ для [i9 185H]
+        ignore_data_skip=True,  # 3. ДОБАВЛЯЕМ стабильности для IterableDataset
+
+        # --- Дополнительные параметры
+        eval_delay=0,  # - валидация начинается сразу
+        dataloader_drop_last=False,  # не отбрасывать последний батч
+        disable_tqdm=False,  # Включить прогресс-бары
+    )
+
+    # ==============================
+    # Callbacks
+    # ==============================
+
+    class MemoryOptimizationCallback(TrainerCallback):
+        def __init__(self):
+            self.last_log_time = time.time()
+
+        def on_step_end(self, args, state, control, **kwargs):
+            # Периодическая очистка кэша
+            current_time = time.time()
+            if current_time - self.last_log_time > 1200:  # Каждые 20 минут
+                torch.cuda.empty_cache()
+                self.last_log_time = current_time
+                print(f"🧹 {datetime.now().strftime('%Y-%m-%d_%H-%M')} Очищена память GPU после 20 минут")
+
+        def on_evaluate_end(self, args, state, control, **kwargs):
+            # Принудительная очистка после валидации
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+            print(f"🧹 {datetime.now().strftime('%Y-%m-%d_%H-%M')} Очищена память GPU после валидации")
+
+
+    class EnhancedValidationCallback(TrainerCallback):
+        def __init__(self, checkpoint_dir, processor, log_every=100, num_samples=5, early_stopping_patience=3):
+            """
+            callback для валидации и логирования
+
+            :param checkpoint_dir: Директория для сохранения лучших моделей
+            :param processor: Процессор для обработки текста
+            :param log_every: Частота логирования (в шагах)
+            :param num_samples: Количество примеров для визуализации
+            :param early_stopping_patience: Терпение для ранней остановки
+            """
+            self.checkpoint_dir = Path(checkpoint_dir)
+            self.processor = processor
+            self.log_every = log_every
+            self.num_samples = num_samples
+            self.early_stopping_patience = early_stopping_patience
+            self.best_cer = float('inf')
+            self.epochs_no_improve = 0
+            # self.writer = None  # Будет инициализирован при первом вызове
+            self.writer = SummaryWriter(log_dir=str(Path(checkpoint_dir) / "logs"))  # Явная инициализация
+            print(f"📝 Логгер примеров инициализирован в: {checkpoint_dir}/logs")
+
+        def init_writer(self, logs):
+            pass
+
+        def on_evaluate(self, args, state, control, **kwargs):
+            """Вызывается после каждого этапа валидации"""
+            metrics = kwargs.get('metrics', {})
+            global_step = state.global_step
+
+            # Извлекаем данные
+            # Важно: В Seq2SeqTrainer pred_ids часто передаются через metrics,
+            # если вы переопределяли compute_metrics, или доступны в объекте предсказаний.
+            predictions = metrics.get('eval_predictions', [])
+            labels = metrics.get('eval_labels', [])
+            cer = metrics.get('eval_cer', float('inf'))
+
+            # --- БЛОК ПЕЧАТИ В КОНСОЛЬ ---
+            if len(predictions) > 0:
+                print(f"\n--- ПРИМЕРЫ НА ШАГЕ {global_step} (CER: {cer:.4f}) ---")
+                for i in range(min(3, len(predictions))):
+                    p_ids = predictions[i]
+                    l_ids = labels[i]
+
+                    # Заменяем -100 на pad_token_id, чтобы декодер не выдал ошибку
+                    p_ids[p_ids == -100] = self.processor.tokenizer.pad_token_id
+                    l_ids[l_ids == -100] = self.processor.tokenizer.pad_token_id
+
+                    p_text = self.processor.decode(p_ids, skip_special_tokens=True)
+                    l_text = self.processor.decode(l_ids, skip_special_tokens=True)
+
+                    print(f"ОЖИДАНИЕ: '{l_text}'")
+                    print(f"РЕАЛЬНОСТЬ: '{p_text}'")
+                    print("-" * 20)
+
+            # Логируем CER в TensorBoard
+            if self.writer:
+                self.writer.add_scalar("Val/cer", cer, global_step)
+
+            # Логируем примеры в TensorBoard (вкладка TEXT)
+            if len(predictions) > 0 and self.writer:
+                n_samples = min(self.num_samples, len(predictions))
+                # Выбираем случайные индексы для разнообразия
+                indices = random.sample(range(len(predictions)), n_samples)
+
+                for i, idx in enumerate(indices):
+                    curr_p_ids = predictions[idx]
+                    curr_l_ids = labels[idx]
+
+                    curr_p_ids[curr_p_ids == -100] = self.processor.tokenizer.pad_token_id
+                    curr_l_ids[curr_l_ids == -100] = self.processor.tokenizer.pad_token_id
+
+                    pred_text = self.processor.decode(curr_p_ids, skip_special_tokens=True)
+                    true_text = self.processor.decode(curr_l_ids, skip_special_tokens=True)
+
+                    self.writer.add_text(
+                        f"Val/sample_{i}",
+                        f"**True:** `{true_text}`  \n**Pred:** `{pred_text}`",
+                        global_step
+                    )
+                self.writer.flush()
+
+            # --- ЛОГИКА СОХРАНЕНИЯ ЛУЧШЕЙ МОДЕЛИ ---
+            if cer < self.best_cer:
+                self.best_cer = cer
+                self.epochs_no_improve = 0
+                best_model_dir = self.checkpoint_dir / f"best_cer_model_cer-{cer}"
+                best_model_dir.mkdir(parents=True, exist_ok=True)
+
+                kwargs['model'].save_pretrained(best_model_dir)
+                self.processor.save_pretrained(best_model_dir)
+
+                if args.local_rank in [-1, 0]:
+                    print(f"🎯 Новый лучший CER: {cer:.4f}. Модель сохранена.")
+            else:
+                self.epochs_no_improve += 1
+                if self.epochs_no_improve >= self.early_stopping_patience:
+                    print(f"⚠️ CER не улучшается {self.epochs_no_improve} проверок подряд")
+
+            if args.local_rank in [-1, 0]:
+                print(f"Validation @ step {global_step} - CER: {cer:.4f} | Best: {self.best_cer:.4f}")
+
+        def on_train_end(self, args, state, control, **kwargs):
+            """Закрываем ресурсы при завершении"""
+            if self.writer:
+                self.writer.close()
+                print("✅ Логгер TensorBoard закрыт")
+
+    memory_callback = MemoryOptimizationCallback()  # Создаем колбэк очистки GPU через 5 минут и после VAL
+    callback = EnhancedValidationCallback(  # Создаем колбэк улучшенной информации о VAL
+        checkpoint_dir=OUTPUT_DIR,
+        processor=processor,
+        log_every=2000,  # Логировать каждые 2000 шагов
+        num_samples=10,  # Показывать 10 примеров
+        early_stopping_patience=10  # Останавливать после 10 эпох без улучшений
+    )
+
+    # ==============================
+    # Train
+    # ==============================
+    print(f"{model.config.decoder_start_token_id=}")
+    # Посмотрим на один пример из загрузчика
+    sample = next(iter(train_dataset))
+    print(f"Ключи в датасете: {sample.keys()}")
+
+    # --- Инициализация Trainer ---
+    trainer = Seq2SeqTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=val_dataset,
+        compute_metrics=compute_metrics,
+        processing_class=processor,
+        callbacks=[callback, memory_callback],
+        data_collator=default_data_collator,
+    )
+
+    model.config.use_cache = False
+
+    trainer.train()
+
+    # --- Финальное сохранение ---
+    print(f"\n✅ Обучение завершено! {datetime.now().strftime('%Y-%m-%d_%H-%M')} Сохраняем лучшую модель...")
+    trainer.save_model(str(OUTPUT_DIR / "best_model"))
+    processor.save_pretrained(str(OUTPUT_DIR / "best_model"))
+    print(f"🎉 Модель сохранена в: {OUTPUT_DIR / 'best_model'}")
+
+if __name__ == "__main__":
+    main()
+
+"""
+Отличия этой версии "resume" от обычной тренировки:
+Сброс оптимизатора: Если использовать resume_from_checkpoint=True, то тогда Trainer загрузил бы старый Learning Rate и состояние моментов (Adam). И если модель "застряла", нам нужно встряхнуть её веса новым оптимизатором. Загрузка через from_pretrained и запуск train() без указания чекпоинта в методе — это лучший способ сделать "Restart" обучения с весов CER 0.4.
+Cosine Scheduler: Линейный график слишком быстро снижает LR. Косинус позволит модели дольше находиться на высоком LR, что критично для формирования связей между буквами (превращения букв в слова).
+Full Fine-tuning: На этапе 0.4 энкодер уже нельзя морозить. Ему нужно научиться передавать в декодер контекст "целого слова", а не просто отдельных пятен на бумаге.
+
+Что вы должны увидеть в логах:
+Сначала loss может немного подскочить (это нормально, так как мы увеличили LR), но затем он должен начать падать быстрее, чем раньше. В примерах валидации вы заметите, как пробелы между буквами начнут исчезать: сначала в коротких словах (предлоги), затем в длинных.
+"""

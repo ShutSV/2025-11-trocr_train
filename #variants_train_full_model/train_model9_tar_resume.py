@@ -8,7 +8,8 @@ from transformers import (
     VisionEncoderDecoderModel,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
-    default_data_collator,
+    # default_data_collator,
+    DataCollatorForSeq2Seq,
     TrainerCallback,
     TrOCRProcessor,
 )
@@ -31,6 +32,9 @@ model.decoder.resize_token_embeddings(len(processor.tokenizer))
 model.config.decoder_start_token_id = processor.tokenizer.cls_token_id
 model.config.pad_token_id = processor.tokenizer.pad_token_id
 model.config.vocab_size = model.config.decoder.vocab_size
+model.config.eos_token_id = processor.tokenizer.sep_token_id # или eos_token_id
+if model.config.decoder_start_token_id is None:
+    model.config.decoder_start_token_id = processor.tokenizer.bos_token_id
 
 def check_tokenizer_model():
     test_char = "П"
@@ -51,6 +55,39 @@ model.config.num_beams = 4
 model.config.repetition_penalty = 1.2  # Добавляем штраф за пробелы и повторы - Чтобы меньше "заикалась" символами
 
 cer_metric = evaluate.load("cer")
+
+
+class TrOCRDataCollator:
+    def __init__(self, processor, model):
+        self.processor = processor
+        self.model = model
+
+    def __call__(self, features):
+        # pixel_values = torch.stack([torch.tensor(f["pixel_values"]) for f in features])
+        # labels = [torch.tensor(f["labels"]) for f in features]
+        pixel_values = torch.stack([f["pixel_values"].detach().clone() if isinstance(f["pixel_values"], torch.Tensor) else torch.tensor(f["pixel_values"]) for f in features])
+        labels = [f["labels"].detach().clone() if isinstance(f["labels"], torch.Tensor) else torch.tensor(f["labels"]) for f in features]
+
+        # Паддинг меток
+        labels_batch = self.processor.tokenizer.pad(
+            {"input_ids": labels},
+            padding=True,
+            return_tensors="pt",
+        )
+
+        labels_ids = labels_batch["input_ids"]
+        # Заменяем паддинг на -100, чтобы не считать по нему loss
+        labels_ids[labels_ids == self.processor.tokenizer.pad_token_id] = -100
+
+        # Явно создаем decoder_input_ids для модели
+        decoder_input_ids = self.model.prepare_decoder_input_ids_from_labels(labels=labels_ids)
+
+        return {
+            "pixel_values": pixel_values,
+            "labels": labels_ids,
+            "decoder_input_ids": decoder_input_ids
+        }
+
 
 def main():
 
@@ -90,14 +127,11 @@ def main():
         # --- Гиперпараметры ---
         # num_train_epochs=10,  # Так как датасет бесконечный/потоковый, лучше задавать шаги, а не эпохи
         max_steps=200_000,
-        learning_rate=3e-5,
+        learning_rate=4e-5,
         lr_scheduler_type="cosine",  # Косинус лучше выводит из плато
-        warmup_steps=1000,  # Короткий прогрев для новых градиентов
+        warmup_steps=500,  # Короткий прогрев для новых градиентов
         weight_decay=0.05,  # Увеличиваем регуляризацию
-
-        # weight_decay=0.01,
-        warmup_ratio=0.1,
-        # lr_scheduler_type="linear",
+        label_smoothing_factor=0.1,  # КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: борется с самоуверенностью в пробелах
 
         # --- Управление лучшей моделью ---
         load_best_model_at_end=True,
@@ -108,15 +142,20 @@ def main():
         logging_first_step=True,  # Логируем первый шаг
         logging_nan_inf_filter=False,  # Логируем все значения
         # eval_accumulation_steps=3,  # Для стабильности оценки
-        dataloader_pin_memory=torch.cuda.is_available(),  # Ускорение загрузки данных
-        dataloader_num_workers=4,    # Параллельная загрузка - ОТКЛЮЧИТЬ для [i9 185H]
-        remove_unused_columns=False,  # Для IterableDataset нужно явно указать, что не используется длина
 
-        # Оптимизация загрузки данных
+        # --- Оптимизация загрузки данных
+        remove_unused_columns=False,  # Для IterableDataset нужно явно указать, что не используется длина
+        dataloader_num_workers=4,  # Параллельная загрузка - ОТКЛЮЧИТЬ для [i9 185H]
+        dataloader_pin_memory=torch.cuda.is_available(),  # Ускорение загрузки данных
         dataloader_prefetch_factor=64,  # Количество батчей, загружаемых каждым worker'ом заранее - ОТКЛЮЧИТЬ для [i9 185H]
+
+        # dataloader_num_workers=0,  # Обязательно 0 для Windows
+        # dataloader_pin_memory=False,  # Отключаем, чтобы не было конфликтов памяти
+        # dataloader_prefetch_factor=None,  # Должно быть None при 0 воркеров
+
         # dataloader_persistent_workers=True,  # Сохранять workers между эпохами - ОТКЛЮЧИТЬ для [i9 185H]
 
-        # Дополнительные параметры
+        # --- Дополнительные параметры
         eval_delay=0,  # - валидация начинается сразу
         dataloader_drop_last=False,  # не отбрасывать последний батч
         disable_tqdm=False,  # Включить прогресс-бары
@@ -125,28 +164,6 @@ def main():
     # ==============================
     # Callbacks
     # ==============================
-
-    # class FreezeEncoderCallback(TrainerCallback):
-    #     def __init__(self, unfreeze_step=2000):
-    #         self.unfreeze_step = unfreeze_step
-    #         self.is_unfrozen = False
-    #
-    #     def on_step_begin(self, args, state, control, **kwargs):
-    #         model = kwargs['model']
-    #
-    #         # На самом первом шаге замораживаем энкодер
-    #         if state.global_step == 0:
-    #             for param in model.encoder.parameters():
-    #                 param.requires_grad = False
-    #             print(f"❄️ {datetime.now().strftime('%Y-%m-%d_%H-%M')} Энкодер заморожен на первые {self.unfreeze_step} шагов.")
-    #
-    #         # При достижении нужного шага — размораживаем
-    #         if state.global_step >= self.unfreeze_step and not self.is_unfrozen:
-    #             for param in model.encoder.parameters():
-    #                 param.requires_grad = True
-    #             self.is_unfrozen = True
-    #             print(f"🔥 {datetime.now().strftime('%Y-%m-%d_%H-%M')} Шаг {state.global_step}: Энкодер разморожен. Начинаем полное дообучение.")
-
 
     class MemoryOptimizationCallback(TrainerCallback):
         def __init__(self):
@@ -275,11 +292,7 @@ def main():
                 self.writer.close()
                 print("✅ Логгер TensorBoard закрыт")
 
-
-    # freeze_callback = FreezeEncoderCallback(unfreeze_step=3000)  # Создаем колбэк разморозки на 3000 шаге
-
     memory_callback = MemoryOptimizationCallback()  # Создаем колбэк очистки GPU через 5 минут и после VAL
-
     callback = EnhancedValidationCallback(  # Создаем колбэк улучшенной информации о VAL
         checkpoint_dir=OUTPUT_DIR,
         processor=processor,
@@ -292,6 +305,17 @@ def main():
     # Train
     # ==============================
 
+    # Создаем коллятор
+    # data_collator = DataCollatorForSeq2Seq(
+    #     tokenizer=processor.tokenizer,
+    #     model=model,
+    #     padding=True,
+    #     label_pad_token_id=-100
+    # )
+
+    # Вместо DataCollatorForSeq2Seq используем наш новый класс
+    data_collator = TrOCRDataCollator(processor, model)
+
     # --- Инициализация Trainer ---
     trainer = Seq2SeqTrainer(
         model=model,
@@ -301,11 +325,15 @@ def main():
         compute_metrics=compute_metrics,
         processing_class=processor,
         callbacks=[callback, memory_callback],
-        data_collator=default_data_collator,
+        # data_collator=default_data_collator,
+        data_collator=data_collator,
     )
 
     # resume_training = bool(get_last_checkpoint(OUTPUT_DIR))
     # trainer.train(resume_from_checkpoint=resume_training)
+
+    model.config.use_cache = False
+
     trainer.train()
 
     # --- Финальное сохранение ---
