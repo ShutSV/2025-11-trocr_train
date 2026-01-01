@@ -215,5 +215,9 @@ __marimo__/
 
 # Output
 /output
+/trocr_cyr_lora
 /trocr_rus_model
 /input
+
+# variants
+/#*

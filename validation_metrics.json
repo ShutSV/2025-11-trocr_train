@@ -1,0 +1,28 @@
+[
+  {
+    "step": 3000,
+    "metrics": {
+      "eval_loss": 6.8964128494262695,
+      "eval_cer": 0.9779613436158885,
+      "eval_wer": 0.9995206710605152,
+      "eval_runtime": 63.1547,
+      "eval_samples_per_second": 63.337,
+      "eval_steps_per_second": 0.998,
+      "epoch": 0.01
+    },
+    "timestamp": "2025-12-28T21:18:14.255766"
+  },
+  {
+    "step": 6000,
+    "metrics": {
+      "eval_loss": 6.7925262451171875,
+      "eval_cer": 0.931899583750121,
+      "eval_wer": 1.0196524865188736,
+      "eval_runtime": 90.7985,
+      "eval_samples_per_second": 44.054,
+      "eval_steps_per_second": 0.694,
+      "epoch": 0.02
+    },
+    "timestamp": "2025-12-28T21:33:28.422462"
+  }
+]

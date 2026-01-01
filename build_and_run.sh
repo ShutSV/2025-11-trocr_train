@@ -32,4 +32,4 @@ echo "Для проверки: curl http://localhost:8000/health"
 uvicorn app:app --host 0.0.0.0 --port 8000
 
 запустить тензорборд
-tensorboard --logdir=output/2025-12-25_11-10/logs/
+tensorboard --logdir=trocr_cyr_lora/2025-12-27_23-07/logs --host=0.0.0.0 --port 6006
